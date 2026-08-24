@@ -123,10 +123,21 @@ different, well-established pattern (real preset packs use a Profile +
 Preset combo like this) and a lower-risk one: it's a separate file, so if
 it doesn't work, the already-confirmed-working profile is untouched.
 
-**Not yet verified against real Lightroom** — same caveat as everything
-else in this doc: needs the user to test-import both files and confirm (a)
-the grain preset shows up and applies, and (b) selecting it actually
-switches to the right profile via the `crs:CameraProfile` reference.
+**Verified against real Lightroom (2026-08-24):** both files import and the
+grain preset does render grain and select the profile correctly. Intensity
+didn't fully match the app preview at max slider — `GrainAmount` was
+already at Lightroom's ceiling (100) at the app's max, so we scaled
+`GrainSize` up too (flat 25 → up to 60, `index.html` commit `069c826`),
+which helped but didn't fully close the gap.
+
+**Decision: deprioritized, not pursuing further.** User's call — the tool
+is about color transfer, grain matching is a secondary nice-to-have, and
+exact parity was never fully achievable anyway: the app's grain is uniform
+per-pixel noise on a small in-browser canvas, Lightroom's Grain effect is a
+resolution/print-size-calibrated procedural texture — different algorithms
+on different-sized images, so intensity was always going to be an
+approximation, not a fixable bug. Leave `GrainAmount`/`GrainSize` as-is
+unless this comes back up.
 
 ## Why the result is "close but not identical" (confirmed, not a bug)
 

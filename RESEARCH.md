@@ -277,6 +277,17 @@ plugin skeleton in Lightroom, manually apply a custom RGB tone curve to
 a test photo, run the diagnostic, and read back the real field names
 before writing `developsettings.lua` against them.
 
+### Gotcha found running the diagnostic (2026-08-24)
+
+First real-Lightroom run threw `Yielding is not allowed within a C or
+metamethod call` on `photo:getDevelopSettings()`. Cause: catalog/photo API
+calls can yield internally to cooperate with Lightroom's task scheduler,
+and plain Lua `pcall()` can't cross that yield boundary. Fix: use
+`LrTasks.pcall()` instead of `pcall()` for any SDK call that might yield
+— it's the SDK's yield-safe pcall, built for exactly this. Applied in
+`DumpDevelopSettings.lua`; worth remembering for every future SDK call
+we wrap in error handling, not just this one.
+
 ### Not yet built
 
 `developsettings.lua` (blocked on the above), `ColorTransferMain.lua`

@@ -25,7 +25,12 @@ LrTasks.startAsyncTask(function()
     return
   end
 
-  local ok, settingsOrErr = pcall(function()
+  -- Plain Lua pcall() can't cross a yield boundary, and catalog/photo API
+  -- calls like getDevelopSettings() can yield internally to cooperate with
+  -- Lightroom's task scheduler -- that combination throws "Yielding is not
+  -- allowed within a C or metamethod call". LrTasks.pcall() is the SDK's
+  -- yield-safe pcall, built for exactly this.
+  local ok, settingsOrErr = LrTasks.pcall(function()
     return photo:getDevelopSettings()
   end)
 
@@ -34,7 +39,7 @@ LrTasks.startAsyncTask(function()
     return
   end
 
-  local okPath, photoPath = pcall(function() return photo:getRawMetadata("path") end)
+  local okPath, photoPath = LrTasks.pcall(function() return photo:getRawMetadata("path") end)
   local text = serialize.dump(settingsOrErr)
 
   local desktop = LrPathUtils.getStandardFilePath("desktop")

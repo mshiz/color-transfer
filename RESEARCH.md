@@ -493,7 +493,17 @@ Fixed the check to compare `exitCode ~= 0` properly, and — since
 added stderr redirection to a temp file plus source/output file
 existence and size in the error message, and had `loadPixelsFromRawFile`
 collect and surface each candidate's specific failure reason instead of
-a generic "not decodable" message. Not yet known which of these was the
-actual root cause of the original failure — the next real-Lightroom
-error message should pinpoint it directly instead of requiring more
-guessing.
+a generic "not decodable" message.
+
+The improved diagnostics worked immediately: real error surfaced was
+`Yielding is not allowed within a C or metamethod call` — the *exact
+same* yield-boundary bug fixed once already in `DumpDevelopSettings.lua`
+(`LrTasks.execute` yields internally; plain Lua `pcall` can't cross a
+yield boundary), just missed here. `loadPixelsFromRawFile` was wrapping
+`M.convertToBMP` (which calls `LrTasks.execute`) in plain `pcall`
+instead of `LrTasks.pcall`. Fixed both this and one other stray plain
+`pcall` in the same file (wrapping `LrFileUtils.fileAttributes`, also
+potentially yielding). Grepped the whole plugin afterward to confirm no
+other plain `pcall` remains anywhere near an SDK call — this lesson
+needs to be a standing rule for every new SDK call going forward, not
+just a one-off fix each time it's hit.

@@ -188,7 +188,7 @@ if import ~= nil then
       end
       LrFileUtils.delete(stderrPath)
       local sourceExists = LrFileUtils.exists(sourcePath)
-      local sizeOk, sourceSize = pcall(function() return LrFileUtils.fileAttributes(sourcePath).fileSize end)
+      local sizeOk, sourceSize = LrTasks.pcall(function() return LrFileUtils.fileAttributes(sourcePath).fileSize end)
       if not sizeOk then sourceSize = "?" end
       error(string.format(
         "sips failed converting %s to BMP: exitCode=%s outputExists=%s sourceExists=%s sourceSize=%s stderr=%q cmd=%s",
@@ -258,7 +258,11 @@ if import ~= nil then
       jf:write(slice)
       jf:close()
 
-      local ok, bmpPathOrErr = pcall(M.convertToBMP, candidateJpegPath, maxDimension)
+      -- LrTasks.pcall, not plain pcall: convertToBMP calls LrTasks.execute
+      -- internally, which yields, and plain pcall can't cross a yield
+      -- boundary (this exact bug already bit DumpDevelopSettings.lua and
+      -- ColorTransferMain.lua earlier -- see RESEARCH.md -- missed here).
+      local ok, bmpPathOrErr = LrTasks.pcall(M.convertToBMP, candidateJpegPath, maxDimension)
       LrFileUtils.delete(candidateJpegPath)
 
       if ok then

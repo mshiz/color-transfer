@@ -330,12 +330,41 @@ decoded the same way, computes stats, builds curves, and applies via
 the view-building code (Lua 5.2+ only; Lightroom's Lua version wasn't
 worth gambling on) in favor of plain `table.insert`.
 
-**Not yet tested against real Lightroom** — this is UI/orchestration
-code with no standalone-verifiable path (unlike `lab.lua`/`imageio.lua`/
-`curvefit.lua`/`developsettings.lua`, all confirmed before this point).
-Known remaining uncertainties, lowest to highest confidence: exact
-`f:catalog_photo{}` parameter names (width/height might differ),
-`LrPathUtils.removeExtension` and `LrTasks.sleep` existing as named.
-Expect at least one more debugging round once the user opens the panel
-in Lightroom — same pattern as every other real-Lightroom-only piece so
-far in this project.
+### First real-Lightroom test of the panel (2026-08-24)
+
+Two rounds of issues, both resolved:
+
+1. **New menu item didn't appear after editing `Info.lua`.** "Reload
+   Plug-in" in Plug-in Manager picked up the new menu *title* but not
+   Lightroom's internal index of which script files exist in the plugin
+   — invoking it threw `No script by the name ColorTransferMain.lua`
+   even though the file existed exactly as referenced. Fully quitting
+   and reopening Lightroom Classic fixed it. Takeaway: editing an
+   *already-registered* menu item's file content reloads live (confirmed
+   with the `DumpDevelopSettings.lua` pcall fix, no restart needed), but
+   *adding a new menu entry* needs a full app restart, not just
+   "Reload Plug-in."
+
+2. **The dialog itself rendered correctly** — target photo preview,
+   sliders, reference picker, name field all worked, which resolved
+   every UI-side uncertainty flagged above (`catalog_photo` params,
+   `LrPathUtils.removeExtension`, `LrTasks.sleep` all fine as written).
+
+3. **Apply failed**: `imageio.lua:46: expected 24bpp BMP, got 32`. The
+   user's reference image was a macOS Screenshot (PNG with an alpha
+   channel) — `sips -s format bmp` writes 32bpp BGRA for any source with
+   alpha, 24bpp BGR otherwise. Two sub-issues found by hand-decoding a
+   real 32bpp sips output with `xxd` (same method used for the original
+   24bpp verification): the DIB header is a 124-byte `BITMAPV4HEADER`
+   (not the 40-byte `BITMAPINFOHEADER`) and compression is `BI_BITFIELDS`
+   (3) with explicit channel bit masks, not plain `BI_RGB` (0). Decoded
+   the actual masks by hand — they resolve to standard BGRA byte order,
+   same layout as the 24bpp BGR case plus a trailing alpha byte — so the
+   pixel-reading loop needed no change, just accepting `bpp == 32` and
+   `compression == 0 or 3`. Fixed and reverified against a real
+   alpha-channel PNG→BMP conversion, cross-checked with Pillow (RGB
+   values match exactly at two corner pixels; alpha, which Lightroom
+   doesn't need, is simply not read).
+
+Not yet re-tested end-to-end after this fix — next step is the user
+retrying Apply with the same reference image.

@@ -29,12 +29,14 @@ local function i32(bytes, off)
   return v
 end
 
--- Parses raw BMP file bytes (uncompressed 24bpp BI_RGB only, the format
--- `sips -s format bmp` produces) into:
+-- Parses raw BMP file bytes (uncompressed BI_RGB only, either 24bpp BGR
+-- or 32bpp BGRA -- `sips -s format bmp` writes 32bpp for any source with
+-- an alpha channel, e.g. PNG screenshots) into:
 --   { width = W, height = H, pixels = flatArray }
--- pixels is a 1-indexed flat table of R,G,B,R,G,B,... in [0,255],
--- row-major, always top-to-bottom regardless of the file's internal
--- row order (handles both the top-down and legacy bottom-up cases).
+-- pixels is a 1-indexed flat table of R,G,B,R,G,B,... in [0,255] (alpha
+-- dropped if present), row-major, always top-to-bottom regardless of the
+-- file's internal row order (handles both the top-down and legacy
+-- bottom-up cases).
 function M.parseBMP(bytes)
   assert(bytes:sub(1, 2) == "BM", "not a BMP file")
   local pixelOffset = u32(bytes, 0x0A)
@@ -43,13 +45,23 @@ function M.parseBMP(bytes)
   local bpp = u16(bytes, 0x1C)
   local compression = u32(bytes, 0x1E)
 
-  assert(bpp == 24, "expected 24bpp BMP, got " .. tostring(bpp))
-  assert(compression == 0, "expected uncompressed BMP (BI_RGB), got compression " .. tostring(compression))
+  assert(bpp == 24 or bpp == 32, "expected 24bpp or 32bpp BMP, got " .. tostring(bpp))
+  -- sips writes 32bpp BMPs (any source with an alpha channel, e.g. PNG
+  -- screenshots) as BI_BITFIELDS (3) with an extended BITMAPV4HEADER
+  -- carrying explicit channel bit masks, not plain BI_RGB (0) like its
+  -- 24bpp output. Verified by hand-decoding a real sips-generated file
+  -- (see verify_imageio.lua / RESEARCH.md): the masks always come out as
+  -- standard byte-order BGRA, same layout as the 24bpp BGR case with an
+  -- alpha byte appended -- so the pixel-reading loop below needs no
+  -- change, just accepting this compression value.
+  assert(compression == 0 or compression == 3,
+    "expected uncompressed (BI_RGB) or bitfield (BI_BITFIELDS) BMP, got compression " .. tostring(compression))
 
   local topDown = heightRaw < 0
   local height = topDown and -heightRaw or heightRaw
 
-  local rowBytes = math.floor((width * 3 + 3) / 4) * 4
+  local bytesPerPixel = bpp / 8
+  local rowBytes = math.floor((width * bytesPerPixel + 3) / 4) * 4
   local pixels = {}
   local idx = 1
   for row = 0, height - 1 do
@@ -59,8 +71,8 @@ function M.parseBMP(bytes)
     local fileRow = topDown and row or (height - 1 - row)
     local rowStart = pixelOffset + fileRow * rowBytes
     for col = 0, width - 1 do
-      local p = rowStart + col * 3
-      local b, g, r = bytes:byte(p + 1, p + 3)
+      local p = rowStart + col * bytesPerPixel
+      local b, g, r = bytes:byte(p + 1, p + 3) -- alpha byte (p+4), if present, is simply not read
       pixels[idx] = r
       pixels[idx + 1] = g
       pixels[idx + 2] = b

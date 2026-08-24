@@ -366,5 +366,22 @@ Two rounds of issues, both resolved:
    values match exactly at two corner pixels; alpha, which Lightroom
    doesn't need, is simply not read).
 
+**Second gotcha found here**: fixing `imageio.lua` and having the user
+retry Apply *without restarting* reproduced the exact same "expected
+24bpp BMP, got 32" error, even though the fix was confirmed correct via
+`lua verify_imageio.lua`. Cause: `imageio.lua` is a `require()`d module
+(pulled in by `ColorTransferMain.lua`), not a top-level menu script.
+Lua's `require()` caches a module the first time it loads and reuses
+that cached copy for the session — only the top-level menu-item script
+file itself (confirmed with the earlier `LrTasks.pcall` fix in
+`DumpDevelopSettings.lua`) gets freshly read on each invocation. Editing
+any `require()`d module (`lab.lua`, `imageio.lua`, `curvefit.lua`,
+`developsettings.lua`, `serialize.lua`) needs a full Lightroom restart to
+take effect, not just re-running the menu command. Combined with the
+earlier "new menu item needs a restart" finding: **the only edit that
+reloads live, no restart, is a content change to an already-registered
+top-level menu script file itself.** Everything else — new menu entries,
+any change to a required module — needs a full quit and reopen.
+
 Not yet re-tested end-to-end after this fix — next step is the user
-retrying Apply with the same reference image.
+restarting Lightroom and retrying Apply with the same reference image.

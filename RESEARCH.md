@@ -93,7 +93,40 @@ another one. Adding it likely fails Lightroom's profile-file validation.
 
 **Lesson:** don't guess at undocumented XMP attributes and ship them
 without a way to test against real Lightroom first. Any future format
-tweak needs the user to test-import before we trust it.
+tweak needs the user to test-import before we trust it. This lesson
+directly shaped the grain fix below — same category of problem, safer fix.
+
+## Finding: `crs:GrainAmount` inside a `Look` profile is a silent no-op
+
+User confirmed (2026-08-24): grain set via the sliders never renders when
+the exported profile is applied in Lightroom, even at the max slider value
+(40 → `GrainAmount=100`) — not a UI-display-only quirk (Adobe's docs say
+Enhanced Profile settings are "applied as a delta... but do not show in the
+UI," so we first suspected it *was* rendering but just not visible in the
+Effects panel numbers; user checked the actual pixels at 100% zoom and
+confirmed there's truly no grain texture).
+
+Unlike the `crs:CameraProfile` regression above, this doesn't break the
+profile — the RGBTable/LUT still works fine, Grain is just silently
+ignored. Root cause unconfirmed (no official spec for what Enhanced
+Profiles do/don't support), but empirically: Grain doesn't apply as a
+profile delta, no matter how it's phrased in the attributes we tried.
+
+**Fix shipped:** stopped putting Grain in the `Look` profile at all (dead
+weight). Instead, `exportXMP()` now optionally emits a *second* file when
+grain > 0: a standard Develop **Preset** (`crs:PresetType="Normal"` — the
+well-established, long-documented kind, unlike Enhanced Profiles) named
+`<slug>-grain-preset.xmp`, containing only `crs:GrainAmount`/`GrainSize`/
+`GrainFrequency` plus `crs:CameraProfile="<profile name>"` so applying the
+preset also selects the color profile — one click gets both. This is a
+different, well-established pattern (real preset packs use a Profile +
+Preset combo like this) and a lower-risk one: it's a separate file, so if
+it doesn't work, the already-confirmed-working profile is untouched.
+
+**Not yet verified against real Lightroom** — same caveat as everything
+else in this doc: needs the user to test-import both files and confirm (a)
+the grain preset shows up and applies, and (b) selecting it actually
+switches to the right profile via the `crs:CameraProfile` reference.
 
 ## Why the result is "close but not identical" (confirmed, not a bug)
 

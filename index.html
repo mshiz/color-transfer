@@ -691,8 +691,15 @@ function exportImage() {
 // Classic camera Profile (imported via Develop → Profile Browser → + →
 // Import Profiles), instead of trying to fake it with Basic-panel sliders,
 // which was the old approach and never matched the app's result.
-// Only film grain (random per-pixel noise) can't live in a LUT — that stays
-// as a real Lightroom Grain-effect setting, applied as a delta by the profile.
+// Film grain (random per-pixel noise) can't live in a LUT (it's not a
+// function of the input pixel). Setting crs:GrainAmount directly on this
+// "Look" profile is silent no-op — confirmed by testing, Lightroom doesn't
+// render it even at max value, despite Adobe's docs claiming Enhanced
+// Profiles apply arbitrary develop settings "as a delta." So when grain is
+// used, a second file is exported: an ordinary Develop Preset
+// (PresetType="Normal", where Grain settings are well-established to work)
+// that references this profile by name via crs:CameraProfile, so applying
+// it selects the profile and adds grain in one step.
 //
 // Caveat that no export can fix: Lightroom renders RAW files from sensor
 // data with its own color science, not from the camera's embedded JPEG that
@@ -927,9 +934,6 @@ async function exportXMP() {
    crs:ConvertToGrayscale="False"
    crs:RGBTable="${tableHash}"
    crs:Table_${tableHash}="${encodedTable}"
-   crs:GrainAmount="${lrGrain}"
-   crs:GrainSize="${lrGrainSize}"
-   crs:GrainFrequency="${lrGrainFreq}"
    crs:HasSettings="True">
    <crs:Name>
     <rdf:Alt>
@@ -967,7 +971,77 @@ async function exportXMP() {
   a.download = fileSlug + '.xmp'
   a.click()
   URL.revokeObjectURL(a.href)
-  setStatus('Lightroom profile exported — import via Develop → Profile Browser → + → Import Profiles.')
+
+  // Grain is random per-pixel noise, so it can't live in the pointwise LUT —
+  // and testing showed it also doesn't render when set as a crs:Grain*
+  // attribute directly on a PresetType="Look" profile (undocumented, but
+  // confirmed not to work). So when grain is used, we export a second,
+  // ordinary Develop Preset (PresetType="Normal", the well-documented kind)
+  // that carries only the Grain settings plus a crs:CameraProfile reference
+  // to this profile by name, so applying the preset selects the profile too.
+  if (grain > 0) {
+    const grainUuid = md5Hex(new TextEncoder().encode(tableHash.toLowerCase() + Date.now() + 'grain')).toUpperCase()
+    const grainXmp =
+`<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000 1.000000, 0000/00/00-00:00:00">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Normal"
+   crs:Cluster=""
+   crs:UUID="${grainUuid}"
+   crs:SupportsAmount="False"
+   crs:SupportsColor="True"
+   crs:SupportsMonochrome="True"
+   crs:SupportsHighDynamicRange="True"
+   crs:SupportsNormalDynamicRange="True"
+   crs:SupportsScalableToAnyDynamicRange="True"
+   crs:CameraProfile="${xmlName}"
+   crs:GrainAmount="${lrGrain}"
+   crs:GrainSize="${lrGrainSize}"
+   crs:GrainFrequency="${lrGrainFreq}"
+   crs:HasSettings="True">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">${xmlName} — Grain</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:ShortName>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">${xmlName} — Grain</rdf:li>
+    </rdf:Alt>
+   </crs:ShortName>
+   <crs:SortName>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">${xmlName} — Grain</rdf:li>
+    </rdf:Alt>
+   </crs:SortName>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">User Presets</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+   <crs:Description>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Applies the ${xmlName} profile plus grain — exported from Bruna Lacerda Color Transfer Tool</rdf:li>
+    </rdf:Alt>
+   </crs:Description>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+
+    const grainBlob = new Blob([grainXmp], { type: 'application/octet-stream' })
+    const ga = document.createElement('a')
+    ga.href = URL.createObjectURL(grainBlob)
+    ga.download = fileSlug + '-grain-preset.xmp'
+    ga.click()
+    URL.revokeObjectURL(ga.href)
+
+    setStatus('Exported two files — import the profile via Develop → Profile Browser → + → Import Profiles, then the "-grain-preset" file via Presets panel → + → Import Presets (applies grain and selects the profile in one click).')
+  } else {
+    setStatus('Lightroom profile exported — import via Develop → Profile Browser → + → Import Profiles.')
+  }
 }
 function resetSliders() {
   sliderIds.forEach(id => {

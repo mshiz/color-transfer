@@ -61,7 +61,12 @@ end
 -- inside an LrTasks task.
 local function statsFromTargetPhoto(photo)
   local jpeg, failed = nil, false
-  photo:requestJpegThumbnail(1024, 1024, function(data, err)
+  -- requestJpegThumbnail returns a request object that MUST be held
+  -- until the callback fires (per the SDK docs) or it can be garbage
+  -- collected mid-flight, silently dropping the callback -- this was
+  -- missing originally and is the likely cause of the "timed out or
+  -- failed" error seen on the second real-Lightroom test run.
+  local pendingRequest = photo:requestJpegThumbnail(1024, 1024, function(data, err)
     if data then jpeg = data else failed = true end
   end)
   local waited = 0
@@ -70,6 +75,7 @@ local function statsFromTargetPhoto(photo)
     LrTasks.sleep(0.1)
     waited = waited + 0.1
   end
+  pendingRequest = nil -- safe to release now that the callback has fired (or we're giving up)
   if not jpeg then
     error("Could not render a preview for the selected photo (timed out or failed).")
   end

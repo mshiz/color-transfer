@@ -383,5 +383,30 @@ reloads live, no restart, is a content change to an already-registered
 top-level menu script file itself.** Everything else — new menu entries,
 any change to a required module — needs a full quit and reopen.
 
-Not yet re-tested end-to-end after this fix — next step is the user
-restarting Lightroom and retrying Apply with the same reference image.
+After restarting, Apply succeeded once — but produced clearly wrong
+colors (not yet diagnosed, see below). Retrying immediately after threw
+`Could not render a preview for the selected photo (timed out or
+failed)` from `statsFromTargetPhoto`'s `requestJpegThumbnail` call.
+Cause: the SDK docs for `requestJpegThumbnail` explicitly warn *"The
+method returns a request object. Hold a reference to this object until
+your callback is called, then release it"* — the original code discarded
+that return value entirely, so the pending request could plausibly be
+garbage-collected mid-flight, silently dropping the callback. Fixed by
+capturing it in a local that stays alive through the poll loop.
+
+### Open bug: wrong colors on the one successful apply run
+
+Not yet diagnosed — need more information from the user (what the
+result actually looked like, and ideally what the applied Tone Curve
+looks like in Lightroom's own Tone Curve panel afterward, to tell
+whether this is a bad curve *fit* vs. values landing in the wrong
+fields). Leading hypothesis: the curve-fit approach's known trade-off
+(documented from the start — sampling each channel's response while
+holding the other two at mid-gray can't reproduce true cross-channel
+behavior) may be worse in practice than anticipated for some
+reference/target combinations, especially at the tone-curve tails where
+extrapolating from a mid-gray-held sample into extreme R/G/B territory
+could push through implausible Lab values before clamping. Not
+confirmed — could equally be an unrelated bug (e.g. a channel-order
+mixup somewhere in the pixel pipeline). Needs the diagnostic follow-up
+before attempting a fix.

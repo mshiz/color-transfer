@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Color Transfer — Bruna Lacerda</title>
+<title>Color Transfer</title>
 <script>
   // Runs before CSS/paint so there's no flash of the wrong theme.
   try {
@@ -720,7 +720,7 @@ function imgToBase64(img) {
 function exportImage() {
   const a = document.createElement('a')
   a.href = document.getElementById('result-canvas').toDataURL('image/jpeg', 0.95)
-  a.download = 'bruna-colour-transfer.jpg'; a.click()
+  a.download = 'color-transfer.jpg'; a.click()
 }
 
 // ── Lightroom "Enhanced Profile" export ──
@@ -1000,7 +1000,7 @@ async function exportXMP() {
    </crs:Group>
    <crs:Description>
     <rdf:Alt>
-     <rdf:li xml:lang="x-default">Exported from Bruna Lacerda Color Transfer Tool</rdf:li>
+     <rdf:li xml:lang="x-default">Exported from Color Transfer Tool</rdf:li>
     </rdf:Alt>
    </crs:Description>
   </rdf:Description>
@@ -1066,7 +1066,7 @@ async function exportXMP() {
    </crs:Group>
    <crs:Description>
     <rdf:Alt>
-     <rdf:li xml:lang="x-default">Applies the ${xmlName} profile plus grain — exported from Bruna Lacerda Color Transfer Tool</rdf:li>
+     <rdf:li xml:lang="x-default">Applies the ${xmlName} profile plus grain — exported from Color Transfer Tool</rdf:li>
     </rdf:Alt>
    </crs:Description>
   </rdf:Description>

@@ -1,7 +1,7 @@
 return {
   LrSdkVersion = 10.0,
   LrSdkMinimumVersion = 6.0,
-  LrToolkitIdentifier = 'com.brunalacerda.colortransfer',
+  LrToolkitIdentifier = 'com.colortransfer.lightroom',
   LrPluginName = 'Color Transfer',
   LrPluginInfoUrl = 'https://mshiz.github.io/color-transfer/',
 

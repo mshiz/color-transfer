@@ -893,8 +893,11 @@ async function exportXMP() {
   const intensity  = get('intensity') / 100
   const adj = { warmth: get('warmth'), contrast: get('contrast'), saturation: get('sat'), highlights: get('highlights'), shadows: get('shadows'), fade: get('fade') }
   const grain = get('grain')
-  const lrGrain     = Math.round(grain * 2.5)
-  const lrGrainSize = grain > 0 ? 25 : 0
+  const lrGrain     = Math.round(Math.min(100, grain * 2.5))
+  // GrainAmount caps at 100 (hit at slider max 40), so at high grain settings
+  // the only way to read as visibly grainier is bigger grain particles —
+  // scale GrainSize up with the slider instead of leaving it flat.
+  const lrGrainSize = grain > 0 ? Math.round(15 + (grain / 40) * 45) : 0
   const lrGrainFreq = grain > 0 ? 50 : 0
 
   const samples = buildTransferLUTSamples(LUT_SIZE, state.lastRefStats, state.lastTgtStats, intensity, adj)

@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Transfer — Bruna Lacerda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,300;0,400;1,300;1,400&family=Poppins:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --cream: #F2EFE8; --ink: #1A1917; --red: #C03928;
+    --warm-white: #FAF8F4; --blush: #E8D5D2;
+    --ink-60: rgba(26,25,23,0.6); --ink-20: rgba(26,25,23,0.2); --ink-05: rgba(26,25,23,0.05);
+    --sidebar: 280px;
+  }
+  html, body {
+    background: var(--cream); color: var(--ink);
+    font-family: 'Poppins', sans-serif; font-weight: 300;
+    height: 100vh; overflow: hidden;
+  }
+  .app {
+    display: flex; flex-direction: column;
+    height: 100vh;
+    padding: 1.25rem 1.5rem;
+  }
+
+  /* ── BODY ROW ── */
+  .body-row {
+    flex: 1; min-height: 0;
+    display: flex; gap: 1rem;
+    align-items: stretch;
+  }
+
+  /* ── PANELS COL: topbar + panels stacked, same width ── */
+  .panels-col {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column;
+    gap: 1rem;
+    padding-top: 0;
+  }
+
+  /* ── TOPBAR (inside panels-col) ── */
+  .topbar {
+    display: flex; align-items: center;
+    justify-content: space-between; flex-shrink: 0;
+  }
+  .page-title {
+    font-family: 'Lora', serif; font-weight: 300;
+    font-size: 1.15rem; letter-spacing: -0.01em; line-height: 1;
+  }
+
+  /* ── PANELS ── */
+  .panels {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .panel {
+    background: var(--warm-white);
+    border: 0.5px solid var(--ink-20);
+    position: relative;
+    height: calc(100vh - 5rem);
+    max-height: calc(100vh - 5rem);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: height 0.25s ease;
+  }
+
+  /* empty-state label */
+  .panel-header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 4;
+    padding: 0.625rem 0.875rem;
+    display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(to bottom, rgba(250,248,244,0.97) 55%, transparent);
+    pointer-events: none;
+  }
+  .panel-header.hidden { display: none; }
+  .panel-num { font-family:'Lora',serif; font-size:0.55rem; letter-spacing:0.15em; color:var(--ink-60); }
+  .panel-title { font-size:0.52rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--ink); }
+
+  /* ── DROP ZONE ── */
+  .drop-zone {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    cursor: pointer; transition: background 0.2s;
+    padding: 1.5rem; gap: 0.75rem;
+  }
+  .drop-zone.has-image {
+    position: absolute; inset: 0; z-index: 3;
+    background: transparent; flex: none; padding: 0;
+  }
+  .drop-zone.has-image .drop-icon,
+  .drop-zone.has-image .drop-text,
+  .drop-zone.has-image .drop-sub { display: none; }
+  .drop-zone.has-image.drag-over { background: rgba(232,213,210,0.55); }
+  .drop-zone:not(.has-image):hover,
+  .drop-zone:not(.has-image).drag-over { background: var(--blush); }
+  .drop-icon { width: 24px; height: 24px; opacity: 0.22; }
+  .drop-text { font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-60); text-align: center; }
+  .drop-sub  { font-size: 0.52rem; color: var(--ink-60); opacity: 0.55; text-align: center; }
+
+  /* ── IMAGE LAYERS ── */
+  .img-wrap { position: absolute; inset: 0; display: none; }
+  .img-wrap.visible { display: block; }
+  .img-wrap img, .img-wrap canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* ── BEFORE/AFTER TOGGLE ── */
+  .toggle-wrap {
+    position: absolute; bottom: 0.875rem; left: 50%; transform: translateX(-50%);
+    z-index: 6; display: none; align-items: center; gap: 0.5rem;
+    background: rgba(250,248,244,0.93); border: 0.5px solid var(--ink-20);
+    padding: 0.35rem 0.75rem 0.35rem 0.5rem; white-space: nowrap;
+  }
+  .toggle-wrap.visible { display: flex; }
+  .toggle-label { font-size: 0.5rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-60); user-select: none; transition: color 0.15s; }
+  .toggle-label.active { color: var(--ink); }
+  .toggle-switch { position: relative; width: 28px; height: 14px; flex-shrink: 0; }
+  .toggle-switch input { display: none; }
+  .toggle-track { position: absolute; inset: 0; background: var(--ink-20); cursor: pointer; transition: background 0.2s; }
+  .toggle-switch input:checked + .toggle-track { background: var(--ink); }
+  .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; background: var(--warm-white); transition: transform 0.2s; pointer-events: none; }
+  .toggle-switch input:checked ~ .toggle-thumb { transform: translateX(14px); }
+
+  /* ── REMOVE ── */
+  .remove-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 6;
+    width: 18px; height: 18px;
+    background: rgba(250,248,244,0.9); border: 0.5px solid var(--ink-20);
+    cursor: pointer; font-size: 8px; color: var(--ink-60);
+    display: none; align-items: center; justify-content: center; font-family: monospace;
+  }
+  .panel:hover .remove-btn { display: flex; }
+
+
+  /* ── PROCESSING ── */
+  .proc-overlay {
+    position: absolute; inset: 0;
+    background: rgba(250,248,244,0.82);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 0.625rem; z-index: 8;
+  }
+  .proc-overlay.visible { display: flex; }
+  .spinner { width: 18px; height: 18px; border: 1px solid var(--ink-20); border-top-color: var(--ink); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .proc-label { font-size: 0.5rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-60); }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: var(--sidebar); flex-shrink: 0;
+    display: flex; flex-direction: column;
+    padding: 0 1.25rem;
+  }
+  .sidebar-title {
+    font-size: 0.5rem; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-60); margin-bottom: 1.25rem;
+  }
+  .sliders-list { display: flex; flex-direction: column; gap: 1.1rem; }
+  .sidebar-spacer { flex: 1; }
+  .slider-group label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .sl-name { font-size: 0.5rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink); }
+  .sl-val  { font-family: 'Lora', serif; font-size: 0.6rem; color: var(--ink-60); }
+
+  .slider-track-wrap {
+    position: relative; height: 8px;
+    display: flex; align-items: center;
+  }
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 1px;
+    background: var(--ink-20); outline: none; cursor: pointer;
+    position: relative; z-index: 1;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--ink); cursor: pointer;
+  }
+  input[type=range]:hover { background: var(--ink-60); }
+  .slider-ghost {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    width: 1.5px; height: 7px; background: var(--red);
+    opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 0;
+  }
+  .slider-ghost.visible { opacity: 0.7; }
+
+  .sidebar-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .btn {
+    font-family: 'Poppins', sans-serif; font-weight: 300;
+    font-size: 0.5rem; letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0.55rem 0; width: 100%;
+    border: 0.5px solid var(--ink); background: transparent; color: var(--ink);
+    cursor: pointer; transition: all 0.2s; white-space: nowrap; text-align: center;
+  }
+  .btn:hover { background: var(--ink); color: var(--warm-white); }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .btn:disabled:hover { background: transparent; color: var(--ink); }
+  .btn-red { border-color: var(--red); color: var(--red); }
+  .btn-red:hover { background: var(--red); color: var(--warm-white); }
+  .btn-red:disabled:hover { background: transparent; color: var(--red); }
+
+  .status-bar {
+    margin-top: 0.75rem; padding: 0.5rem 0.75rem;
+    background: var(--ink-05); border-left: 1.5px solid var(--red); display: none;
+  }
+  .status-bar.visible { display: block; }
+  .status-text { font-family: 'Lora', serif; font-size: 0.6rem; font-style: italic; color: var(--ink-60); line-height: 1.5; }
+
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="body-row">
+
+    <div class="panels-col">
+
+      <div class="topbar">
+        <h1 class="page-title">Color Transfer</h1>
+      </div>
+
+      <div class="panels">
+
+      <!-- LEFT: Reference -->
+      <div class="panel" id="panel-ref">
+        <div class="panel-header" id="header-ref">
+          <span class="panel-num">01</span>
+          <span class="panel-title">Colour Reference</span>
+        </div>
+        <div class="drop-zone" id="dz-ref">
+          <svg class="drop-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="28" height="28" rx="1"/><circle cx="10" cy="11" r="3"/><path d="M2 22 l8-8 6 6 4-4 10 10"/></svg>
+          <span class="drop-text">Drop reference photo</span>
+          <span class="drop-sub">JPG, PNG or RAW (CR2, CR3, RAF, DNG)</span>
+        </div>
+        <div class="img-wrap" id="ref-wrap"><img id="ref-img" src="" alt=""></div>
+        <button class="remove-btn" onclick="removeImage('ref')">✕</button>
+        <input type="file" id="file-ref" accept="image/*,.cr2,.cr3,.raf,.dng,.rw2,.nef,.arw" style="display:none">
+      </div>
+
+      <!-- RIGHT: Target -->
+      <div class="panel" id="panel-target">
+        <div class="panel-header" id="header-target">
+          <span class="panel-num">02</span>
+          <span class="panel-title">Target Photo</span>
+        </div>
+        <div class="drop-zone" id="dz-target">
+          <svg class="drop-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="28" height="28" rx="1"/><circle cx="10" cy="11" r="3"/><path d="M2 22 l8-8 6 6 4-4 10 10"/></svg>
+          <span class="drop-text">Drop target photo</span>
+          <span class="drop-sub">JPG, PNG or RAW (CR2, CR3, RAF, DNG)</span>
+        </div>
+        <div class="img-wrap" id="target-original-wrap"><img id="target-original-img" src="" alt=""></div>
+        <div class="img-wrap" id="target-result-wrap"><canvas id="result-canvas"></canvas></div>
+        <button class="remove-btn" onclick="removeImage('target')">✕</button>
+        <div class="proc-overlay" id="proc-target">
+          <div class="spinner"></div>
+          <span class="proc-label">Transferring colours</span>
+        </div>
+        <div class="toggle-wrap" id="toggle-wrap">
+          <span class="toggle-label" id="lbl-before">Before</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-input" checked onchange="handleToggle()">
+            <div class="toggle-track"></div>
+            <div class="toggle-thumb"></div>
+          </label>
+          <span class="toggle-label active" id="lbl-after">After</span>
+        </div>
+        <input type="file" id="file-target" accept="image/*,.cr2,.cr3,.raf,.dng,.rw2,.nef,.arw" style="display:none">
+      </div>
+
+    </div><!-- /panels -->
+
+    </div><!-- /panels-col -->
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <p class="sidebar-title">Adjustments</p>
+      <div class="sliders-list">
+        <div class="slider-group"><label><span class="sl-name">Intensity</span><span class="sl-val" id="val-intensity">80%</span></label><div class="slider-track-wrap"><input type="range" min="0" max="100" value="80" step="1" id="sl-intensity"><div class="slider-ghost" id="ghost-intensity"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Warmth</span><span class="sl-val" id="val-warmth">0</span></label><div class="slider-track-wrap"><input type="range" min="-50" max="50" value="0" step="1" id="sl-warmth"><div class="slider-ghost" id="ghost-warmth"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Contrast</span><span class="sl-val" id="val-contrast">0</span></label><div class="slider-track-wrap"><input type="range" min="-50" max="50" value="0" step="1" id="sl-contrast"><div class="slider-ghost" id="ghost-contrast"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Saturation</span><span class="sl-val" id="val-sat">0</span></label><div class="slider-track-wrap"><input type="range" min="-50" max="50" value="0" step="1" id="sl-sat"><div class="slider-ghost" id="ghost-sat"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Highlights</span><span class="sl-val" id="val-highlights">0</span></label><div class="slider-track-wrap"><input type="range" min="-50" max="50" value="0" step="1" id="sl-highlights"><div class="slider-ghost" id="ghost-highlights"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Shadows</span><span class="sl-val" id="val-shadows">0</span></label><div class="slider-track-wrap"><input type="range" min="-50" max="50" value="0" step="1" id="sl-shadows"><div class="slider-ghost" id="ghost-shadows"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Fade</span><span class="sl-val" id="val-fade">0%</span></label><div class="slider-track-wrap"><input type="range" min="0" max="60" value="0" step="1" id="sl-fade"><div class="slider-ghost" id="ghost-fade"></div></div></div>
+        <div class="slider-group"><label><span class="sl-name">Grain</span><span class="sl-val" id="val-grain">0</span></label><div class="slider-track-wrap"><input type="range" min="0" max="40" value="0" step="1" id="sl-grain"><div class="slider-ghost" id="ghost-grain"></div></div></div>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-actions">
+        <button class="btn" onclick="resetSliders()">Reset</button>
+        <button class="btn btn-red" id="sb-export" onclick="exportImage()" disabled>Export Image</button>
+        <button class="btn" id="sb-xmp" onclick="exportXMP()" disabled>Export Lightroom Profile</button>
+      </div>
+      <div class="status-bar" id="status-bar"><p class="status-text" id="status-text"></p></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<canvas id="ref-canvas" style="display:none"></canvas>
+<canvas id="target-canvas" style="display:none"></canvas>
+
+<script>
+const state = { refImg: null, targetImg: null, hasResult: false, debounceTimer: null }
+
+
+// Read EXIF Orientation tag from a file's ArrayBuffer.
+// Returns 1 (normal) if not found. Values 5–8 mean the image is rotated 90/270°.
+function readExifOrientation(buffer) {
+  const view = new DataView(buffer)
+  const len = buffer.byteLength
+  // Find the JPEG SOI + APP1 marker (FF E1) which contains EXIF
+  let pos = 0
+  // Skip past SOI (FF D8)
+  if (view.getUint16(0) !== 0xFFD8) return 1
+  pos = 2
+  while (pos < len - 4) {
+    const marker = view.getUint16(pos)
+    const segLen = view.getUint16(pos + 2)
+    if (marker === 0xFFE1) {
+      // Check for "Exif\0\0" header
+      if (view.getUint32(pos + 4) === 0x45786966 && view.getUint16(pos + 8) === 0x0000) {
+        const tiffStart = pos + 10
+        const littleEndian = view.getUint16(tiffStart) === 0x4949
+        const ifdOffset = view.getUint32(tiffStart + 4, littleEndian)
+        const ifdPos = tiffStart + ifdOffset
+        const numEntries = view.getUint16(ifdPos, littleEndian)
+        for (let i = 0; i < numEntries; i++) {
+          const entryPos = ifdPos + 2 + i * 12
+          if (entryPos + 12 > len) break
+          const tag = view.getUint16(entryPos, littleEndian)
+          if (tag === 0x0112) { // Orientation
+            return view.getUint16(entryPos + 8, littleEndian)
+          }
+        }
+      }
+      break
+    }
+    if (marker === 0xFFDA) break // SOS — no more APP segments
+    pos += 2 + segLen
+  }
+  return 1
+}
+
+function setPanelHeight(type, img) {
+  const panel = document.getElementById('panel-' + type)
+  const panelWidth = panel.getBoundingClientRect().width
+  // Use naturalWidth/naturalHeight — on all modern browsers (Chrome, Safari, Firefox)
+  // these now return the EXIF-corrected dimensions for JPEG files.
+  // For portrait photos stored with rotation metadata, naturalWidth < naturalHeight.
+  const ratio = img.naturalHeight / img.naturalWidth
+  const maxH = window.innerHeight - 80
+  const h = Math.min(Math.round(panelWidth * ratio), maxH) + 'px'
+  panel.style.height = h
+  panel.style.maxHeight = h
+}
+
+function resetPanelHeight(type) {
+  const panel = document.getElementById('panel-' + type)
+  panel.style.height = 'calc(100vh - 5rem)'
+  panel.style.maxHeight = 'calc(100vh - 5rem)'
+}
+
+const resizeObserver = new ResizeObserver(() => {
+  if (state.refImg)    setPanelHeight('ref',    state.refImg)
+  if (state.targetImg) setPanelHeight('target', state.targetImg)
+})
+resizeObserver.observe(document.querySelector('.panels-col'))
+
+function setupDrop(type) {
+  const dz = document.getElementById('dz-' + type)
+  const fi = document.getElementById('file-' + type)
+  dz.addEventListener('click', () => fi.click())
+  fi.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0], type) })
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over') })
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'))
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over')
+    const file = e.dataTransfer.files[0]
+    if (file) loadImage(file, type)
+  })
+}
+setupDrop('ref'); setupDrop('target')
+
+const RAW_EXTENSIONS = new Set(['cr2','cr3','raf','dng','rw2','nef','arw'])
+
+function isRawFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase()
+  return RAW_EXTENSIONS.has(ext)
+}
+
+// Extract embedded JPEG previews from a RAW file.
+// Strategy: find every FF D8 FF offset, then try decoding increasingly large
+// slices from that offset until the browser accepts it as a valid image.
+// We keep the largest successfully decoded image — that's the full-size preview.
+async function extractEmbeddedJpeg(file) {
+  const buf   = await file.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  const len   = bytes.length
+
+  // Collect all SOI offsets (FF D8 FF)
+  const soiOffsets = []
+  for (let i = 0; i < len - 2; i++) {
+    if (bytes[i] === 0xFF && bytes[i+1] === 0xD8 && bytes[i+2] === 0xFF) {
+      soiOffsets.push(i)
+    }
+  }
+  if (soiOffsets.length === 0) throw new Error('No JPEG markers found in file.')
+
+  let bestImg  = null
+  let bestPx   = 0
+  let bestUrl  = null
+
+  for (const offset of soiOffsets) {
+    // Take the full slice from this offset to the end of the file.
+    // The browser will decode as much as it can even if there's trailing data.
+    const blob = new Blob([bytes.subarray(offset)], { type: 'image/jpeg' })
+    const url  = URL.createObjectURL(blob)
+    const img  = await new Promise(resolve => {
+      const i = new Image()
+      i.onload  = () => resolve(i)
+      i.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+      i.src = url
+    })
+
+    if (img) {
+      const px = img.naturalWidth * img.naturalHeight
+      if (px > bestPx) {
+        if (bestUrl) URL.revokeObjectURL(bestUrl)
+        bestImg = img
+        bestPx  = px
+        bestUrl = url
+      } else {
+        URL.revokeObjectURL(url)
+      }
+    }
+  }
+
+  if (!bestImg) throw new Error('No decodable JPEG preview found in RAW file.')
+  return bestUrl
+}
+
+async function loadImage(file, type) {
+  if (type === 'target') document.getElementById('proc-target').classList.add('visible')
+
+  try {
+    let dataUrl
+
+    if (isRawFile(file)) {
+      setStatus('Reading RAW file…')
+      dataUrl = await extractEmbeddedJpeg(file)
+      setStatus('RAW file loaded.')
+    } else {
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => resolve(e.target.result)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+    }
+
+    // Set src on the actual DOM img element and wait for it to load there.
+    // Reading naturalWidth/Height from a DOM img (not a detached Image object)
+    // gives EXIF-corrected dimensions in all modern browsers.
+    const domImgId = type === 'ref' ? 'ref-img' : 'target-original-img'
+    const domImg = document.getElementById(domImgId)
+
+    await new Promise((res, rej) => {
+      domImg.onload = res
+      domImg.onerror = rej
+      domImg.src = dataUrl
+    })
+
+    // Now naturalWidth/Height reflect the true displayed dimensions
+    const img = domImg
+    state[type + 'Img'] = img
+    state[type + 'DataUrl'] = dataUrl
+    setPanelHeight(type, img)
+
+    if (type === 'ref') {
+      document.getElementById('ref-wrap').classList.add('visible')
+      document.getElementById('dz-ref').classList.add('has-image')
+      document.getElementById('header-ref').classList.add('hidden')
+    } else {
+      document.getElementById('target-original-wrap').classList.add('visible')
+      document.getElementById('dz-target').classList.add('has-image')
+      document.getElementById('header-target').classList.add('hidden')
+      document.getElementById('proc-target').classList.remove('visible')
+    }
+
+    document.getElementById('file-' + type).value = ''
+    if (state.refImg && state.targetImg) {
+      runTransfer()
+    }
+
+  } catch(err) {
+    document.getElementById('proc-target').classList.remove('visible')
+    setStatus('Could not load file — ' + (err.message || 'unknown error'))
+  }
+}
+
+function removeImage(type) {
+  state[type + 'Img'] = null
+  resetPanelHeight(type)
+  if (type === 'ref') {
+    document.getElementById('ref-wrap').classList.remove('visible')
+    document.getElementById('dz-ref').classList.remove('has-image')
+    document.getElementById('header-ref').classList.remove('hidden')
+  } else {
+    document.getElementById('target-original-wrap').classList.remove('visible')
+    document.getElementById('target-result-wrap').classList.remove('visible')
+    document.getElementById('dz-target').classList.remove('has-image')
+    document.getElementById('header-target').classList.remove('hidden')
+    document.getElementById('toggle-wrap').classList.remove('visible')
+    document.getElementById('sb-export').disabled = true
+    document.getElementById('sb-xmp').disabled = true
+    state.hasResult = false
+  }
+}
+
+const sliderIds = ['intensity','warmth','contrast','sat','highlights','shadows','fade','grain']
+const sliderSfx = { intensity:'%', warmth:'', contrast:'', sat:'', highlights:'', shadows:'', fade:'%', grain:'' }
+const sliderDefaults = { intensity:80, warmth:0, contrast:0, sat:0, highlights:0, shadows:0, fade:0, grain:0 }
+
+function valueToPercent(sl) {
+  return (parseFloat(sl.value) - parseFloat(sl.min)) / (parseFloat(sl.max) - parseFloat(sl.min)) * 100
+}
+
+sliderIds.forEach(id => {
+  const sl = document.getElementById('sl-' + id)
+  const vl = document.getElementById('val-' + id)
+  const ghost = document.getElementById('ghost-' + id)
+  sl.addEventListener('mousedown', () => {
+    const pct = valueToPercent(sl)
+    ghost.style.left = 'calc(' + pct + '% - 0.75px)'
+    ghost.classList.add('visible')
+  })
+  sl.addEventListener('input', () => {
+    vl.textContent = sl.value + (sliderSfx[id] || '')
+    if (state.refImg && state.targetImg) {
+      clearTimeout(state.debounceTimer)
+      state.debounceTimer = setTimeout(runTransfer, 300)
+    }
+  })
+  sl.addEventListener('mouseup', () => {
+    setTimeout(() => ghost.classList.remove('visible'), 900)
+  })
+  sl.addEventListener('dblclick', () => {
+    const def = sliderDefaults[id]
+    sl.value = def
+    vl.textContent = def + (sliderSfx[id] || '')
+    ghost.classList.remove('visible')
+    if (state.refImg && state.targetImg) {
+      clearTimeout(state.debounceTimer)
+      state.debounceTimer = setTimeout(runTransfer, 300)
+    }
+  })
+})
+
+function handleToggle() {
+  const checked = document.getElementById('toggle-input').checked
+  document.getElementById('lbl-before').classList.toggle('active', !checked)
+  document.getElementById('lbl-after').classList.toggle('active', checked)
+  document.getElementById('target-result-wrap').classList.toggle('visible', checked)
+  document.getElementById('target-original-wrap').classList.toggle('visible', !checked)
+}
+
+function runTransfer() {
+  if (!state.refImg || !state.targetImg) return
+  document.getElementById('proc-target').classList.add('visible')
+  setTimeout(() => {
+    const get = id => parseInt(document.getElementById('sl-' + id).value)
+    const intensity = get('intensity') / 100, warmth = get('warmth'), contrast = get('contrast'),
+          saturation = get('sat'), highlights = get('highlights'), shadows = get('shadows'),
+          fade = get('fade'), grain = get('grain')
+    const rC = document.getElementById('ref-canvas')
+    const tC = document.getElementById('target-canvas')
+    const resC = document.getElementById('result-canvas')
+    const rW = state.refImg.naturalWidth, rH = state.refImg.naturalHeight
+    const tW = state.targetImg.naturalWidth, tH = state.targetImg.naturalHeight
+    rC.width=rW; rC.height=rH; tC.width=tW; tC.height=tH; resC.width=tW; resC.height=tH
+    const rCtx = rC.getContext('2d'), tCtx = tC.getContext('2d'), resCtx = resC.getContext('2d')
+    rCtx.drawImage(state.refImg, 0, 0); tCtx.drawImage(state.targetImg, 0, 0)
+    const refPx = rCtx.getImageData(0,0,rW,rH).data
+    const tgtPx = tCtx.getImageData(0,0,tW,tH).data
+    const refLab = toLABArray(refPx), tgtLab = toLABArray(tgtPx)
+    const rSt = computeStats(refLab), tSt = computeStats(tgtLab)
+    state.lastRefStats = rSt; state.lastTgtStats = tSt
+    const outLab = new Float32Array(tgtLab.length)
+    for (let i = 0; i < tgtLab.length; i += 3) {
+      for (let c = 0; c < 3; c++) {
+        const n = (tgtLab[i+c] - tSt.mean[c]) / (tSt.std[c] + 1e-6)
+        outLab[i+c] = tgtLab[i+c] * (1 - intensity) + (n * rSt.std[c] + rSt.mean[c]) * intensity
+      }
+    }
+    const outImg = resCtx.createImageData(tW, tH)
+    fromLABArray(outLab, outImg.data, tgtPx, { warmth, contrast, saturation, highlights, shadows, fade, grain })
+    resCtx.putImageData(outImg, 0, 0)
+    document.getElementById('target-result-wrap').classList.add('visible')
+    document.getElementById('target-original-wrap').classList.remove('visible')
+    document.getElementById('toggle-wrap').classList.add('visible')
+    document.getElementById('toggle-input').checked = true
+    document.getElementById('lbl-before').classList.remove('active')
+    document.getElementById('lbl-after').classList.add('active')
+    document.getElementById('proc-target').classList.remove('visible')
+    document.getElementById('sb-export').disabled = false
+    document.getElementById('sb-xmp').disabled = false
+    state.hasResult = true
+  }, 20)
+}
+
+function toLABArray(rgba) {
+  const n = rgba.length / 4, out = new Float32Array(n * 3)
+  for (let i = 0; i < n; i++) {
+    const [L,A,B] = rgbToLab(rgba[i*4]/255, rgba[i*4+1]/255, rgba[i*4+2]/255)
+    out[i*3]=L; out[i*3+1]=A; out[i*3+2]=B
+  }
+  return out
+}
+function rgbToLab(r,g,b) {
+  r=r>0.04045?Math.pow((r+0.055)/1.055,2.4):r/12.92
+  g=g>0.04045?Math.pow((g+0.055)/1.055,2.4):g/12.92
+  b=b>0.04045?Math.pow((b+0.055)/1.055,2.4):b/12.92
+  const f=v=>v>0.008856?Math.cbrt(v):7.787*v+16/116
+  const x=f((r*0.4124+g*0.3576+b*0.1805)/0.95047), y=f(r*0.2126+g*0.7152+b*0.0722), z=f((r*0.0193+g*0.1192+b*0.9505)/1.08883)
+  return [116*y-16, 500*(x-y), 200*(y-z)]
+}
+function labToRgb(L,A,B) {
+  const finv=v=>v>0.206897?v*v*v:(v-16/116)/7.787
+  const y0=(L+16)/116, x=finv(A/500+y0)*0.95047, y=finv(y0), z=finv(y0-B/200)*1.08883
+  const gamma=v=>v>0.0031308?1.055*Math.pow(v,1/2.4)-0.055:12.92*v
+  return [gamma(x*3.2406+y*(-1.5372)+z*(-0.4986)), gamma(x*(-0.9689)+y*1.8758+z*0.0415), gamma(x*0.0557+y*(-0.204)+z*1.057)]
+}
+function computeStats(lab) {
+  const n=lab.length/3, mean=[0,0,0], std=[0,0,0]
+  for(let i=0;i<lab.length;i+=3){mean[0]+=lab[i];mean[1]+=lab[i+1];mean[2]+=lab[i+2]}
+  mean[0]/=n; mean[1]/=n; mean[2]/=n
+  for(let i=0;i<lab.length;i+=3){std[0]+=(lab[i]-mean[0])**2;std[1]+=(lab[i+1]-mean[1])**2;std[2]+=(lab[i+2]-mean[2])**2}
+  return { mean, std: std.map(v=>Math.sqrt(v/n)) }
+}
+function clamp(v){return Math.max(0,Math.min(1,v))}
+function fromLABArray(lab, out, orig, adj) {
+  const n = lab.length / 3
+  for (let i = 0; i < n; i++) {
+    let [r,g,b] = labToRgb(lab[i*3], lab[i*3+1], lab[i*3+2])
+    r=clamp(r); g=clamp(g); b=clamp(b)
+    if(adj.warmth){const w=adj.warmth/100;r=clamp(r+w*0.08);b=clamp(b-w*0.06)}
+    if(adj.contrast){const c=1+adj.contrast/100;r=clamp((r-.5)*c+.5);g=clamp((g-.5)*c+.5);b=clamp((b-.5)*c+.5)}
+    if(adj.saturation){const s=1+adj.saturation/100,lm=0.299*r+0.587*g+0.114*b;r=clamp(lm+(r-lm)*s);g=clamp(lm+(g-lm)*s);b=clamp(lm+(b-lm)*s)}
+    const lum=0.299*r+0.587*g+0.114*b
+    if(adj.highlights&&lum>0.6){const t=(lum-.6)/.4,h=adj.highlights/200;r=clamp(r+h*t);g=clamp(g+h*t);b=clamp(b+h*t)}
+    if(adj.shadows&&lum<0.4){const t=(.4-lum)/.4,s=adj.shadows/200;r=clamp(r+s*t);g=clamp(g+s*t);b=clamp(b+s*t)}
+    if(adj.fade>0){const f=adj.fade/100*.4;r=clamp(r*(1-f)+0.75*f);g=clamp(g*(1-f)+0.75*f);b=clamp(b*(1-f)+0.75*f)}
+    if(adj.grain>0){const noise=(Math.random()-.5)*adj.grain/255;r=clamp(r+noise);g=clamp(g+noise);b=clamp(b+noise)}
+    out[i*4]=Math.round(r*255); out[i*4+1]=Math.round(g*255); out[i*4+2]=Math.round(b*255); out[i*4+3]=orig[i*4+3]
+  }
+}
+function imgToBase64(img) {
+  const c = document.createElement('canvas')
+  c.width = Math.min(img.naturalWidth, 800)
+  c.height = Math.round(c.width * img.naturalHeight / img.naturalWidth)
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+  return c.toDataURL('image/jpeg', 0.7).split(',')[1]
+}
+function exportImage() {
+  const a = document.createElement('a')
+  a.href = document.getElementById('result-canvas').toDataURL('image/jpeg', 0.95)
+  a.download = 'bruna-colour-transfer.jpg'; a.click()
+}
+
+// ── Lightroom "Enhanced Profile" export ──
+// The in-app look is a per-pixel function of the target photo's own RGB value
+// (a Lab mean/std match against the reference, plus the creative sliders) —
+// it doesn't depend on neighbouring pixels. That means it can be captured
+// almost exactly as a 3D color lookup table and shipped as a Lightroom
+// Classic camera Profile (imported via Develop → Profile Browser → + →
+// Import Profiles), instead of trying to fake it with Basic-panel sliders,
+// which was the old approach and never matched the app's result.
+// Only film grain (random per-pixel noise) can't live in a LUT — that stays
+// as a real Lightroom Grain-effect setting, applied as a delta by the profile.
+//
+// Caveat that no export can fix: Lightroom renders RAW files from sensor
+// data with its own color science, not from the camera's embedded JPEG that
+// this app previews — so the LUT's input won't perfectly match Lightroom's
+// baseline. (We tried pinning crs:CameraProfile="Camera Standard" inside
+// this profile to correct for that, but that attribute isn't valid on a
+// "Look"-type profile — it belongs on Develop presets that reference a
+// profile by name, not inside the profile's own definition — and adding
+// it made the file fail to import at all. Reverted.)
+
+const LUT_SIZE = 32 // Adobe Enhanced Profile RGB tables cap at 32x32x32
+
+function transformPixelForLUT(r, g, b, rSt, tSt, intensity, adj) {
+  const lab = rgbToLab(r, g, b)
+  const outLab = [0, 0, 0]
+  for (let c = 0; c < 3; c++) {
+    const n = (lab[c] - tSt.mean[c]) / (tSt.std[c] + 1e-6)
+    outLab[c] = lab[c] * (1 - intensity) + (n * rSt.std[c] + rSt.mean[c]) * intensity
+  }
+  let [rr, gg, bb] = labToRgb(outLab[0], outLab[1], outLab[2])
+  rr = clamp(rr); gg = clamp(gg); bb = clamp(bb)
+  if (adj.warmth) { const w = adj.warmth / 100; rr = clamp(rr + w * 0.08); bb = clamp(bb - w * 0.06) }
+  if (adj.contrast) { const c = 1 + adj.contrast / 100; rr = clamp((rr - .5) * c + .5); gg = clamp((gg - .5) * c + .5); bb = clamp((bb - .5) * c + .5) }
+  if (adj.saturation) { const s = 1 + adj.saturation / 100, lm = 0.299 * rr + 0.587 * gg + 0.114 * bb; rr = clamp(lm + (rr - lm) * s); gg = clamp(lm + (gg - lm) * s); bb = clamp(lm + (bb - lm) * s) }
+  const lum = 0.299 * rr + 0.587 * gg + 0.114 * bb
+  if (adj.highlights && lum > 0.6) { const t = (lum - .6) / .4, h = adj.highlights / 200; rr = clamp(rr + h * t); gg = clamp(gg + h * t); bb = clamp(bb + h * t) }
+  if (adj.shadows && lum < 0.4) { const t = (.4 - lum) / .4, s = adj.shadows / 200; rr = clamp(rr + s * t); gg = clamp(gg + s * t); bb = clamp(bb + s * t) }
+  if (adj.fade > 0) { const f = adj.fade / 100 * .4; rr = clamp(rr * (1 - f) + 0.75 * f); gg = clamp(gg * (1 - f) + 0.75 * f); bb = clamp(bb * (1 - f) + 0.75 * f) }
+  return [rr, gg, bb]
+}
+
+// samples[r + g*size + b*size*size] = [r',g',b'] — standard .cube ordering (R fastest)
+function buildTransferLUTSamples(size, rSt, tSt, intensity, adj) {
+  const samples = new Array(size * size * size)
+  for (let bi = 0; bi < size; bi++) {
+    for (let gi = 0; gi < size; gi++) {
+      for (let ri = 0; ri < size; ri++) {
+        const r = ri / (size - 1), g = gi / (size - 1), b = bi / (size - 1)
+        samples[ri + gi * size + bi * size * size] = transformPixelForLUT(r, g, b, rSt, tSt, intensity, adj)
+      }
+    }
+  }
+  return samples
+}
+
+// Packs the LUT into Adobe's internal "big table" block format used by
+// Camera Raw / Lightroom RGBTable profiles: a 16-byte header, then one
+// little-endian uint16 triplet per grid point (each value stored as a delta
+// from the identity ramp, wrapped mod 65536), then a 12-byte + 16-byte trailer.
+function buildLookTableBlockData(size, samples) {
+  const nopValue = new Array(size)
+  for (let i = 0; i < size; i++) nopValue[i] = Math.floor((i * 0xFFFF + Math.floor(size / 2)) / (size - 1))
+
+  const sampleBytes = new Uint8Array(size * size * size * 6)
+  const sdv = new DataView(sampleBytes.buffer)
+  for (let b = 0; b < size; b++) {
+    for (let g = 0; g < size; g++) {
+      for (let r = 0; r < size; r++) {
+        const [rv, gv, bv] = samples[r + g * size + b * size * size]
+        const outIdx = (r * size * size + g * size + b) * 6
+        sdv.setUint16(outIdx, (Math.round(rv * 65535) - nopValue[r]) & 0xFFFF, true)
+        sdv.setUint16(outIdx + 2, (Math.round(gv * 65535) - nopValue[g]) & 0xFFFF, true)
+        sdv.setUint16(outIdx + 4, (Math.round(bv * 65535) - nopValue[b]) & 0xFFFF, true)
+      }
+    }
+  }
+
+  const block = new Uint8Array(16 + sampleBytes.length + 12 + 16)
+  const dv = new DataView(block.buffer)
+  dv.setUint32(0, 1, true); dv.setUint32(4, 1, true); dv.setUint32(8, 3, true); dv.setUint32(12, size, true)
+  block.set(sampleBytes, 16)
+  const off = 16 + sampleBytes.length
+  dv.setUint32(off, 0, true); dv.setUint32(off + 4, 1, true); dv.setUint32(off + 8, 0, true)
+  dv.setFloat64(off + 12, 0.0, true)
+  dv.setFloat64(off + 20, 2.0, true)
+  return block
+}
+
+async function zlibDeflate(bytes) {
+  const cs = new CompressionStream('deflate')
+  const writer = cs.writable.getWriter()
+  writer.write(bytes)
+  writer.close()
+  const chunks = []
+  const reader = cs.readable.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+  }
+  const total = chunks.reduce((a, c) => a + c.length, 0)
+  const out = new Uint8Array(total)
+  let off = 0
+  for (const c of chunks) { out.set(c, off); off += c.length }
+  return out
+}
+
+const BASE85_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?`'|()[]{}@%$#"
+
+function encodeZlibBase85(bytes) {
+  const n = bytes.length
+  const padded = new Uint8Array(n + 4)
+  padded.set(bytes)
+  const dv = new DataView(padded.buffer)
+  let out = ''
+  let remaining = n
+  for (let i = 0; i < n; i += 4) {
+    let x = dv.getUint32(i, true)
+    for (let j = 0; j < 5; j++) {
+      out += BASE85_ALPHABET[x % 85]
+      x = Math.floor(x / 85)
+      if (j > 0) {
+        remaining -= 1
+        if (remaining === 0) break
+      }
+    }
+  }
+  return out
+}
+
+// Minimal MD5 (RFC 1321) — needed because crs:RGBTable / crs:UUID identify
+// the embedded table by its MD5 hash, and the Web Crypto API doesn't do MD5.
+function md5Hex(bytes) {
+  const K = [
+    0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+    0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+    0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+    0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+    0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+    0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+    0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+    0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391,
+  ]
+  const S = [
+    7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+    5, 9,14,20, 5, 9,14,20, 5, 9,14,20, 5, 9,14,20,
+    4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+    6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21,
+  ]
+  const rotl = (x, c) => ((x << c) | (x >>> (32 - c))) >>> 0
+
+  const origLen = bytes.length
+  const bitLenLow = (origLen * 8) >>> 0
+  const bitLenHigh = Math.floor(origLen / 0x20000000)
+  const padLen = ((56 - (origLen + 1) % 64) + 64) % 64
+  const total = origLen + 1 + padLen + 8
+  const msg = new Uint8Array(total)
+  msg.set(bytes, 0)
+  msg[origLen] = 0x80
+  const dv = new DataView(msg.buffer)
+  dv.setUint32(total - 8, bitLenLow, true)
+  dv.setUint32(total - 4, bitLenHigh, true)
+
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476
+  for (let chunkStart = 0; chunkStart < total; chunkStart += 64) {
+    const M = new Uint32Array(16)
+    for (let i = 0; i < 16; i++) M[i] = dv.getUint32(chunkStart + i * 4, true)
+    let A = a0, B = b0, C = c0, D = d0
+    for (let i = 0; i < 64; i++) {
+      let F, g
+      if (i < 16) { F = (B & C) | (~B & D); g = i }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16 }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16 }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16 }
+      F = (F + A + K[i] + M[g]) >>> 0
+      A = D; D = C; C = B
+      B = (B + rotl(F, S[i])) >>> 0
+    }
+    a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0
+  }
+  const hex = n => { let s = ''; for (let i = 0; i < 4; i++) s += ((n >>> (i * 8)) & 0xff).toString(16).padStart(2, '0'); return s }
+  return hex(a0) + hex(b0) + hex(c0) + hex(d0)
+}
+
+async function exportXMP() {
+  if (!state.lastRefStats || !state.lastTgtStats) { setStatus('Run a transfer first.'); return }
+  if (typeof CompressionStream === 'undefined') {
+    setStatus("Your browser doesn't support the compression API this export needs — try a recent Chrome, Edge, Firefox, or Safari.")
+    return
+  }
+
+  setStatus('Building Lightroom profile…')
+
+  const get = id => parseInt(document.getElementById('sl-' + id).value)
+  const intensity  = get('intensity') / 100
+  const adj = { warmth: get('warmth'), contrast: get('contrast'), saturation: get('sat'), highlights: get('highlights'), shadows: get('shadows'), fade: get('fade') }
+  const grain = get('grain')
+  const lrGrain     = Math.round(grain * 2.5)
+  const lrGrainSize = grain > 0 ? 25 : 0
+  const lrGrainFreq = grain > 0 ? 50 : 0
+
+  const samples = buildTransferLUTSamples(LUT_SIZE, state.lastRefStats, state.lastTgtStats, intensity, adj)
+  const blockData = buildLookTableBlockData(LUT_SIZE, samples)
+  const uncompressedSize = blockData.length
+  const zData = await zlibDeflate(blockData)
+  const compressedBlock = new Uint8Array(4 + zData.length)
+  new DataView(compressedBlock.buffer).setUint32(0, uncompressedSize, true)
+  compressedBlock.set(zData, 4)
+  const encodedTable = encodeZlibBase85(compressedBlock)
+
+  const tableHash = md5Hex(blockData).toUpperCase()
+  const uuid = md5Hex(new TextEncoder().encode(tableHash.toLowerCase() + Date.now())).toUpperCase()
+
+  const xmp =
+`<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000 1.000000, 0000/00/00-00:00:00">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Look"
+   crs:Cluster=""
+   crs:UUID="${uuid}"
+   crs:SupportsAmount="False"
+   crs:SupportsColor="True"
+   crs:SupportsMonochrome="False"
+   crs:SupportsHighDynamicRange="True"
+   crs:SupportsNormalDynamicRange="True"
+   crs:SupportsSceneReferred="True"
+   crs:SupportsOutputReferred="True"
+   crs:RequiresRGBTables="False"
+   crs:CameraModelRestriction=""
+   crs:Copyright=""
+   crs:ContactInfo=""
+   crs:Version="14.3"
+   crs:ProcessVersion="11.0"
+   crs:ConvertToGrayscale="False"
+   crs:RGBTable="${tableHash}"
+   crs:Table_${tableHash}="${encodedTable}"
+   crs:GrainAmount="${lrGrain}"
+   crs:GrainSize="${lrGrainSize}"
+   crs:GrainFrequency="${lrGrainFreq}"
+   crs:HasSettings="True">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Color Transfer — Bruna Lacerda</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:ShortName>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Color Transfer</rdf:li>
+    </rdf:Alt>
+   </crs:ShortName>
+   <crs:SortName>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Color Transfer</rdf:li>
+    </rdf:Alt>
+   </crs:SortName>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Profiles</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+   <crs:Description>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Exported from Bruna Lacerda Color Transfer Tool</rdf:li>
+    </rdf:Alt>
+   </crs:Description>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+
+  const blob = new Blob([xmp], { type: 'application/octet-stream' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'bruna-color-transfer.xmp'
+  a.click()
+  URL.revokeObjectURL(a.href)
+  setStatus('Lightroom profile exported — import via Develop → Profile Browser → + → Import Profiles.')
+}
+function resetSliders() {
+  sliderIds.forEach(id => {
+    const def = sliderDefaults[id]
+    document.getElementById('sl-'+id).value = def
+    document.getElementById('val-'+id).textContent = def + (sliderSfx[id] || '')
+    document.getElementById('ghost-'+id).classList.remove('visible')
+  })
+  if (state.refImg && state.targetImg) runTransfer()
+}
+function setStatus(msg) {
+  document.getElementById('status-text').textContent = msg
+  document.getElementById('status-bar').classList.add('visible')
+}
+</script>
+</body>
+</html>

@@ -16,7 +16,6 @@ local LrFunctionContext = import("LrFunctionContext")
 local LrBinding = import("LrBinding")
 local LrTasks = import("LrTasks")
 local LrPathUtils = import("LrPathUtils")
-local LrFileUtils = import("LrFileUtils")
 
 local lab = require("lab")
 local imageio = require("imageio")
@@ -33,6 +32,12 @@ local SLIDER_SPECS = {
   { key = "fade", title = "Fade", min = 0, max = 60, default = 0 },
   { key = "grain", title = "Grain", min = 0, max = 40, default = 0 },
 }
+
+-- Pixel stats (Lab mean/std) don't need full resolution -- downscale
+-- during the sips conversion so a large RAW target file isn't decoded
+-- at full native resolution just to be looped over pixel-by-pixel in
+-- pure Lua.
+local STATS_MAX_DIMENSION = 800
 
 -- Converts flat RGB byte pixels (0-255) into Lab mean/std stats.
 local function statsFromPixels(pixels)
@@ -51,45 +56,26 @@ local function statsFromPixels(pixels)
 end
 
 local function statsFromFile(path)
-  local img = imageio.loadPixelsFromFile(path)
+  local img = imageio.loadPixelsFromFile(path, STATS_MAX_DIMENSION)
   return statsFromPixels(img.pixels)
 end
 
--- requestJpegThumbnail is callback-based/async; block this (background)
--- task until it resolves by yielding in a loop, which is the standard
--- SDK pattern for adapting a callback API to a synchronous-looking call
--- inside an LrTasks task.
+-- Originally used photo:requestJpegThumbnail (callback-based, adapted to
+-- a synchronous-looking call via a yield-poll loop). Dropped that after
+-- two real-Lightroom failures in a row (even after fixing a missing
+-- held-reference bug per the SDK docs' own warning) -- it has a known
+-- reputation for being slow/unreliable when Lightroom hasn't already
+-- cached a preview for that photo. `sips` can decode the original file
+-- directly (including most RAW formats), so this just reuses the same
+-- proven path as the reference image instead of going through Lightroom
+-- at all for pixel access. See RESEARCH.md for the two failed rounds
+-- with requestJpegThumbnail before this change.
 local function statsFromTargetPhoto(photo)
-  local jpeg, failed = nil, false
-  -- requestJpegThumbnail returns a request object that MUST be held
-  -- until the callback fires (per the SDK docs) or it can be garbage
-  -- collected mid-flight, silently dropping the callback -- this was
-  -- missing originally and is the likely cause of the "timed out or
-  -- failed" error seen on the second real-Lightroom test run.
-  local pendingRequest = photo:requestJpegThumbnail(1024, 1024, function(data, err)
-    if data then jpeg = data else failed = true end
-  end)
-  local waited = 0
-  while jpeg == nil and not failed and waited < 30 do
-    LrTasks.yield()
-    LrTasks.sleep(0.1)
-    waited = waited + 0.1
+  local ok, path = LrTasks.pcall(function() return photo:getRawMetadata("path") end)
+  if not ok or not path then
+    error("Could not get the file path for the selected photo.")
   end
-  pendingRequest = nil -- safe to release now that the callback has fired (or we're giving up)
-  if not jpeg then
-    error("Could not render a preview for the selected photo (timed out or failed).")
-  end
-
-  local tmpDir = LrPathUtils.getStandardFilePath("temp")
-  local jpegPath = LrPathUtils.child(tmpDir, "colortransfer-target-" .. tostring(math.random(1e9)) .. ".jpg")
-  local f = assert(io.open(jpegPath, "wb"))
-  f:write(jpeg)
-  f:close()
-
-  local ok, result = LrTasks.pcall(statsFromFile, jpegPath)
-  LrFileUtils.delete(jpegPath)
-  if not ok then error(result) end
-  return result
+  return statsFromFile(path)
 end
 
 local function showDialog()

@@ -394,6 +394,39 @@ that return value entirely, so the pending request could plausibly be
 garbage-collected mid-flight, silently dropping the callback. Fixed by
 capturing it in a local that stays alive through the poll loop.
 
+### Dropped `requestJpegThumbnail` entirely (2026-08-24)
+
+Holding the request reference (previous fix) didn't help — failed the
+same way on retry. Rather than keep tuning a flaky API (there's a real
+community thread titled *"photo:requestJpegThumbnail - Just say
+NO!!!"*, and another reporting it's slow specifically when Lightroom
+hasn't already cached a preview for that photo), replaced it entirely:
+`statsFromTargetPhoto` now just calls `photo:getRawMetadata("path")` and
+reads the file directly via the same `imageio.loadPixelsFromFile` path
+already proven for the reference image — `sips` decodes most RAW
+formats natively, so this doesn't need Lightroom's rendering pipeline at
+all. Simpler, and removes an entire fragile async/GC-risk API surface.
+
+While in there, fixed two more things found by re-reading the code
+rather than waiting for another failed round-trip:
+- **`imageio.lua`'s shell command used Lua's `%q`** to quote the file
+  paths — that escapes for embedding back into *Lua source*, not for a
+  POSIX shell, so it was fragile (silently wrong, not just ugly) for any
+  path containing shell metacharacters. Replaced with proper POSIX
+  single-quote escaping (`'...'`, embedded `'` becomes `'\''`). Verified
+  by round-tripping 7 tricky paths (spaces, `'`, `$`, `` ` ``, `;`,
+  multiple embedded quotes) through a real shell via `io.popen` — all
+  match exactly.
+- **No resolution cap on the target photo's pixel decode.** This project
+  has seen 40MB+ RAF/DNG originals (`stuff/` folder) — decoding one at
+  full native resolution just to loop over every pixel in pure Lua for
+  a mean/std calculation would be needlessly slow. Added an optional
+  `maxDimension` param to `imageio.convertToBMP`/`loadPixelsFromFile`,
+  passed through as sips' `-Z` flag; `ColorTransferMain.lua` now caps
+  both reference and target loads at 800px. Verified `-Z 200` on a real
+  file produces correctly-scaled, correctly-parsed output (200×133 from
+  a 480×320 source, matching aspect ratio).
+
 ### Open bug: wrong colors on the one successful apply run
 
 Not yet diagnosed — need more information from the user (what the

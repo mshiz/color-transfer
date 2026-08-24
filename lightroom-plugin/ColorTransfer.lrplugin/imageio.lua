@@ -92,12 +92,26 @@ if import ~= nil then
   local LrPathUtils = import("LrPathUtils")
   local LrFileUtils = import("LrFileUtils")
 
-  -- Converts any image file sips can read to a temp BMP, returns its path.
-  -- Caller is responsible for deleting the temp file when done.
-  function M.convertToBMP(sourcePath)
+  -- Lua's %q string.format escapes for embedding back into LUA SOURCE,
+  -- not for a POSIX shell -- not safe to use for building a shell
+  -- command (could break, or worse, on paths with $, `, etc.). Standard
+  -- POSIX single-quote escaping instead: wrap in '...', and turn any
+  -- embedded ' into '\'' (close quote, escaped quote, reopen quote).
+  local function shellQuote(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+  end
+
+  -- Converts any image file sips can read to a temp BMP, returns its
+  -- path. Caller is responsible for deleting the temp file when done.
+  -- maxDimension (optional): passed to sips' -Z to downscale during
+  -- conversion -- pixel stats don't need full resolution, and a full-res
+  -- RAW file (this project has seen 40MB+ RAF/DNG originals) decoded and
+  -- then looped over pixel-by-pixel in pure Lua would be needlessly slow.
+  function M.convertToBMP(sourcePath, maxDimension)
     local tmpDir = LrPathUtils.getStandardFilePath("temp")
     local bmpPath = LrPathUtils.child(tmpDir, LrPathUtils.leafName(sourcePath) .. "-" .. tostring(math.random(1e9)) .. ".bmp")
-    local cmd = string.format('sips -s format bmp %q --out %q', sourcePath, bmpPath)
+    local resizeArg = maxDimension and (" -Z " .. tostring(math.floor(maxDimension))) or ""
+    local cmd = "sips -s format bmp" .. resizeArg .. " " .. shellQuote(sourcePath) .. " --out " .. shellQuote(bmpPath)
     local ok, status = LrTasks.execute(cmd)
     if not ok or not LrFileUtils.exists(bmpPath) then
       error("sips failed to convert " .. sourcePath .. " to BMP (status: " .. tostring(status) .. ")")
@@ -106,8 +120,9 @@ if import ~= nil then
   end
 
   -- Loads pixel data for an arbitrary image file path via sips + BMP.
-  function M.loadPixelsFromFile(sourcePath)
-    local bmpPath = M.convertToBMP(sourcePath)
+  -- maxDimension: see convertToBMP.
+  function M.loadPixelsFromFile(sourcePath, maxDimension)
+    local bmpPath = M.convertToBMP(sourcePath, maxDimension)
     local f = io.open(bmpPath, "rb")
     local bytes = f:read("*a")
     f:close()

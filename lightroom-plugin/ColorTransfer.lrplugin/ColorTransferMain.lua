@@ -55,8 +55,13 @@ local function statsFromPixels(pixels)
   return lab.computeStats(labFlat)
 end
 
+-- loadPixelsSmartly: for a RAW file, extracts the embedded JPEG preview
+-- (the camera's own rendering) instead of letting sips demosaic the RAW
+-- from scratch -- see imageio.lua's loadPixelsFromRawFile for why that
+-- distinction matters (Apple's own RAW color interpretation can render
+-- very differently, which was producing wrong colors on RAW targets).
 local function statsFromFile(path)
-  local img = imageio.loadPixelsFromFile(path, STATS_MAX_DIMENSION)
+  local img = imageio.loadPixelsSmartly(path, STATS_MAX_DIMENSION)
   return statsFromPixels(img.pixels)
 end
 

@@ -83,6 +83,62 @@ function M.parseBMP(bytes)
   return { width = width, height = height, pixels = pixels }
 end
 
+-- Matches index.html's RAW_EXTENSIONS / isRawFile exactly.
+M.RAW_EXTENSIONS = { cr2 = true, cr3 = true, raf = true, dng = true, rw2 = true, nef = true, arw = true }
+
+function M.isRawFile(path)
+  local ext = path:match("%.([^./]+)$")
+  return ext ~= nil and M.RAW_EXTENSIONS[ext:lower()] == true
+end
+
+-- Finds every occurrence of the JPEG SOI+marker byte sequence (FF D8 FF)
+-- in `bytes`. Direct port of the offset-scanning half of index.html's
+-- extractEmbeddedJpeg -- same reasoning: RAW files store one or more
+-- embedded JPEG previews (the camera's own rendering) at arbitrary
+-- offsets, and this is how you find where they start.
+function M.findJpegSOIOffsets(bytes)
+  local SOI = "\255\216\255" -- FF D8 FF
+  local offsets = {}
+  local searchFrom = 1
+  while true do
+    local idx = bytes:find(SOI, searchFrom, true) -- plain=true: literal bytes, not a Lua pattern
+    if not idx then break end
+    offsets[#offsets + 1] = idx
+    searchFrom = idx + 1
+  end
+  return offsets
+end
+
+-- Markers that plausibly start a real, displayable JPEG (APP0/JFIF,
+-- APP1/Exif, DQT, baseline/progressive SOF). Deliberately excludes 0xC3
+-- (SOF3, lossless JPEG) -- checked against a real 42MB DNG and found
+-- 651 of 652 raw "FF D8 FF" occurrences were 0xC3, which turned out to
+-- be the DNG's own internally lossless-JPEG-compressed RAW sensor
+-- tiles, not preview images at all (see RESEARCH.md). Only the one
+-- 0xDB candidate was the real embedded preview. Trying to sips-convert
+-- all 652 (each a write-to-disk + subprocess spawn) would have been
+-- minutes-to-hours of pointless work; this filter is what makes
+-- RAW-preview extraction actually fast.
+local LIKELY_PREVIEW_MARKERS = { [0xE0] = true, [0xE1] = true, [0xDB] = true, [0xC0] = true, [0xC2] = true }
+
+-- Filters findJpegSOIOffsets' output down to offsets that plausibly
+-- start a real preview JPEG, by checking the marker byte immediately
+-- after the FF D8 FF. `maxCandidates` (optional) additionally caps the
+-- result as a hard safety net, in case some other RAW format's internal
+-- tile encoding doesn't happen to use SOF3 and slips past the marker
+-- filter -- keeps the largest-offset-count case bounded regardless.
+function M.filterLikelyPreviewOffsets(bytes, offsets, maxCandidates)
+  local filtered = {}
+  for _, offset in ipairs(offsets) do
+    local marker = bytes:byte(offset + 3)
+    if marker and LIKELY_PREVIEW_MARKERS[marker] then
+      filtered[#filtered + 1] = offset
+      if maxCandidates and #filtered >= maxCandidates then break end
+    end
+  end
+  return filtered
+end
+
 -- Everything below requires the Lightroom SDK and cannot be exercised
 -- outside the plugin runtime. `import` is a global injected by Lightroom's
 -- Lua host; referencing an undefined global is not an error in Lua, it's
@@ -128,6 +184,97 @@ if import ~= nil then
     f:close()
     LrFileUtils.delete(bmpPath)
     return M.parseBMP(bytes)
+  end
+
+  -- Loads pixel data for a RAW file via its embedded JPEG preview (the
+  -- camera's own rendering), NOT by letting sips demosaic the RAW itself.
+  -- This matters: sips decoding a RAW from scratch uses Apple's own
+  -- color/white-balance interpretation, which can render very
+  -- differently from the camera's JPEG engine (or Lightroom's own
+  -- rendering) -- exactly the mismatch that was producing wrong colors
+  -- when this function didn't exist and the target photo's RAW file was
+  -- being sips-decoded directly. Direct port of index.html's
+  -- extractEmbeddedJpeg strategy: find every embedded JPEG's start
+  -- offset, try decoding each, keep the largest one that works -- but
+  -- pre-filtered by marker byte first (see filterLikelyPreviewOffsets),
+  -- since a raw scan can turn up hundreds of false-positive offsets that
+  -- are actually the RAW's own internally-compressed sensor data, not
+  -- preview images, and trying to sips-convert all of them would be
+  -- prohibitively slow.
+  function M.loadPixelsFromRawFile(rawPath, maxDimension)
+    local rf = assert(io.open(rawPath, "rb"))
+    local rawBytes = rf:read("*a")
+    rf:close()
+
+    local allOffsets = M.findJpegSOIOffsets(rawBytes)
+    if #allOffsets == 0 then
+      error("No embedded JPEG preview found in " .. rawPath)
+    end
+    local offsets = M.filterLikelyPreviewOffsets(rawBytes, allOffsets, 20)
+    if #offsets == 0 then
+      -- Marker filter found nothing plausible -- fall back to trying the
+      -- raw (unfiltered) candidates, capped, rather than giving up. Rare:
+      -- only expected for a RAW format whose preview doesn't use a
+      -- typical marker immediately after SOI.
+      offsets = {}
+      for i = 1, math.min(20, #allOffsets) do offsets[i] = allOffsets[i] end
+    end
+
+    local tmpDir = LrPathUtils.getStandardFilePath("temp")
+    local bestBmpPath, bestPixelCount = nil, 0
+
+    for _, offset in ipairs(offsets) do
+      -- Slice from this offset to end of file, same as the web app --
+      -- the decoder (here, sips) stops at the JPEG's own EOI marker and
+      -- ignores whatever RAW data trails after it.
+      local slice = rawBytes:sub(offset)
+      local candidateJpegPath = LrPathUtils.child(tmpDir,
+        "colortransfer-embedded-" .. tostring(offset) .. "-" .. tostring(math.random(1e9)) .. ".jpg")
+      local jf = assert(io.open(candidateJpegPath, "wb"))
+      jf:write(slice)
+      jf:close()
+
+      local ok, bmpPathOrErr = pcall(M.convertToBMP, candidateJpegPath, maxDimension)
+      LrFileUtils.delete(candidateJpegPath)
+
+      if ok then
+        local bmpPath = bmpPathOrErr
+        local bf = io.open(bmpPath, "rb")
+        local header = bf and bf:read(26) or nil
+        if bf then bf:close() end
+        local pixelCount = nil
+        if header and #header >= 26 then
+          local width = u32(header, 0x12)
+          local heightRaw = i32(header, 0x16)
+          local height = heightRaw < 0 and -heightRaw or heightRaw
+          pixelCount = width * height
+        end
+        if pixelCount and pixelCount > bestPixelCount then
+          if bestBmpPath then LrFileUtils.delete(bestBmpPath) end
+          bestBmpPath, bestPixelCount = bmpPath, pixelCount
+        else
+          LrFileUtils.delete(bmpPath)
+        end
+      end
+    end
+
+    if not bestBmpPath then
+      error("No decodable embedded JPEG preview found in " .. rawPath .. " (" .. #offsets .. " candidate offset(s) tried)")
+    end
+
+    local bf = assert(io.open(bestBmpPath, "rb"))
+    local bmpBytes = bf:read("*a")
+    bf:close()
+    LrFileUtils.delete(bestBmpPath)
+    return M.parseBMP(bmpBytes)
+  end
+
+  -- Convenience: picks the right loading strategy based on file extension.
+  function M.loadPixelsSmartly(path, maxDimension)
+    if M.isRawFile(path) then
+      return M.loadPixelsFromRawFile(path, maxDimension)
+    end
+    return M.loadPixelsFromFile(path, maxDimension)
   end
 end
 

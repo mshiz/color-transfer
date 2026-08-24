@@ -427,19 +427,45 @@ rather than waiting for another failed round-trip:
   file produces correctly-scaled, correctly-parsed output (200×133 from
   a 480×320 source, matching aspect ratio).
 
-### Open bug: wrong colors on the one successful apply run
+### Diagnosed and fixed: wrong colors traced to sips's own RAW decoding (2026-08-24)
 
-Not yet diagnosed — need more information from the user (what the
-result actually looked like, and ideally what the applied Tone Curve
-looks like in Lightroom's own Tone Curve panel afterward, to tell
-whether this is a bad curve *fit* vs. values landing in the wrong
-fields). Leading hypothesis: the curve-fit approach's known trade-off
-(documented from the start — sampling each channel's response while
-holding the other two at mid-gray can't reproduce true cross-channel
-behavior) may be worse in practice than anticipated for some
-reference/target combinations, especially at the tone-curve tails where
-extrapolating from a mid-gray-held sample into extreme R/G/B territory
-could push through implausible Lab values before clamping. Not
-confirmed — could equally be an unrelated bug (e.g. a channel-order
-mixup somewhere in the pixel pipeline). Needs the diagnostic follow-up
-before attempting a fix.
+Two rounds of diagnosis:
+
+1. First hypothesis (curve-fit approximation being worse than expected)
+   was **ruled out**: user retried with a proper reference photo (not a
+   screenshot) at low intensity, and it was still clearly wrong, while
+   the web app's exact-LUT version handled the identical input correctly.
+   Ruling out "the approximation is just weak here" was the key step —
+   it meant something upstream of the curve math was feeding it bad data.
+
+2. The actual cause: the target photo is a RAW `.dng`. After dropping
+   `requestJpegThumbnail` (above), the plugin was asking `sips` to decode
+   that RAW file **from scratch** — using Apple's own RAW demosaic and
+   color/white-balance interpretation, a completely different rendering
+   pipeline than either the camera's own JPEG engine (what the web app
+   uses, via embedded-preview extraction) or Lightroom's own rendering.
+   That mismatch poisoned the target Lab statistics regardless of
+   intensity, which is exactly why dialing intensity down didn't help.
+
+**Fix:** ported `index.html`'s `extractEmbeddedJpeg` strategy to
+`imageio.lua` (`loadPixelsFromRawFile`) — read the RAW file's own
+embedded JPEG preview (the camera's rendering) instead of letting `sips`
+demosaic it. Necessary detour: a raw scan for `FF D8 FF` marker
+sequences turned up **652 candidates** in the test DNG (vs. a handful
+expected) — checked directly with a Python script rather than assuming,
+and found 651 of them had `0xC3` (SOF3, lossless JPEG) immediately
+after, which turned out to be the DNG's own internally-compressed RAW
+sensor tiles, not preview images — only one candidate (`0xDB`, DQT) was
+the real preview. Trying to `sips`-convert all 652 (each a disk write +
+subprocess spawn) would have been minutes-to-hours; added
+`filterLikelyPreviewOffsets` (whitelist of marker bytes that plausibly
+start a real photo: APP0/APP1/DQT/SOF0/SOF2, explicitly excluding SOF3)
+plus a hard cap of 20 as a safety net for RAW formats that behave
+differently. Verified against two different RAW formats — the DNG (652
+raw candidates → filtered to the 1 real one, confirmed via `sips` to
+decode as a real 1024×683 preview) and a Fuji `.RAF` (3 raw candidates →
+filtered to 1, confirmed as a real 4416×2944 preview) — both
+cross-checked with a standalone Lua test script against the actual
+files, not just unit-tested against synthetic data.
+
+Not yet re-tested end-to-end in real Lightroom after this fix.

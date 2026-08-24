@@ -251,31 +251,40 @@ reliability and zero friction.
   clamped to [0,255], and confirmed intensity=0 + no creative adjustment
   produces the exact identity curve. Repeatable via `lua verify_curvefit.lua`.
 
-### Open risk: develop-settings table field names (blocking `developsettings.lua`)
+### Resolved: develop-settings table field names, via ground truth (2026-08-24)
 
-The Lua table shape `addDevelopPresetForPlugin`/`getDevelopSettings` use
-is only partially confirmed. `Contrast2012`, `Highlights2012`,
-`Shadows2012`, `Whites2012`, `Blacks2012`, `Vibrance`, `Saturation`,
-`GrainAmount`, `GrainSize`, `GrainFrequency` look solid — they match the
-already-proven XMP attribute names. The tone-curve fields are genuinely
-uncertain: some sources mention a newer `ExtendedToneCurvePV2012<Channel>`
-alongside/replacing `ToneCurvePV2012<Channel>`, possibly needing a
-companion `EnableToneCurve` flag — and Adobe's own community threads
-describe this area as *"documentation is incomplete... refer to
-community resources or reverse-engineering."* Same category of risk that
-broke the profile import twice on the web export side (`crs:CameraProfile`
-regression, silent grain no-op) — not guessing again without a
-ground-truth check first (user's explicit call).
+Rather than guess a third time, built `DumpDevelopSettings.lua` (a
+Plug-in Extras diagnostic menu item) to dump a real
+`photo:getDevelopSettings()` table from the user's actual Lightroom
+Classic. Confirmed from that dump:
 
-**Diagnostic built to resolve this** (`DumpDevelopSettings.lua`, wired
-into `Info.lua` as a Plug-in Extras menu item): dumps
-`photo:getDevelopSettings()` for the current photo to
-`~/Desktop/color-transfer-develop-settings-dump.lua` via the `serialize.lua`
-helper (verified standalone against a synthetic nested table — correct
-nesting, array-compaction, string quoting). Next step: install the
-plugin skeleton in Lightroom, manually apply a custom RGB tone curve to
-a test photo, run the diagnostic, and read back the real field names
-before writing `developsettings.lua` against them.
+- `ToneCurvePV2012Red/Green/Blue` are the real field names for this
+  Lightroom version — the `ExtendedToneCurvePV2012` variant mentioned in
+  some community threads either doesn't apply here or isn't needed.
+  Point format: flat `{in0,out0, in1,out1, ...}` in 0-255 integers,
+  exactly what `curvefit.lua` already produced — no format change needed.
+- Two companion fields are required alongside the per-channel curves:
+  `EnableToneCurve = true` and `ToneCurveName2012 = "Custom"`. A base
+  identity `ToneCurvePV2012 = {0,0, 255,255}` was also present in the
+  dump even with custom per-channel curves set, so we include it too.
+- `Contrast2012`, `Highlights2012`, `Shadows2012`, `Whites2012`,
+  `Blacks2012`, `Vibrance`, `Saturation`, `GrainAmount`, `GrainSize`,
+  `GrainFrequency` all confirmed present with the expected simple numeric
+  shape.
+- Fields the plugin doesn't touch (`Temperature`, `WhiteBalance`, etc.)
+  reflected the photo's own actual state in the dump — confirms presets/
+  settings tables only affect the fields they explicitly include.
+
+`developsettings.lua` is built on these confirmed names. Since the
+plugin folds warmth/contrast/saturation/highlights/shadows/fade into the
+tone curves themselves (via `curvefit.lua` sampling the full
+`lab.transformPixel`), the Basic-panel tone fields are explicitly zeroed
+in the assembled table — not used to represent the look, just reset so a
+photo with prior manual edits in those same fields doesn't stack on top
+of what the curves already encode. Verified via `verify_developsettings.lua`:
+grain scaling matches the exact values already proven against real
+Lightroom on the web export side (commit `069c826`), and the required
+companion fields are present in the assembled table.
 
 ### Gotcha found running the diagnostic (2026-08-24)
 
@@ -284,14 +293,49 @@ metamethod call` on `photo:getDevelopSettings()`. Cause: catalog/photo API
 calls can yield internally to cooperate with Lightroom's task scheduler,
 and plain Lua `pcall()` can't cross that yield boundary. Fix: use
 `LrTasks.pcall()` instead of `pcall()` for any SDK call that might yield
-— it's the SDK's yield-safe pcall, built for exactly this. Applied in
-`DumpDevelopSettings.lua`; worth remembering for every future SDK call
-we wrap in error handling, not just this one.
+— it's the SDK's yield-safe pcall, built for exactly this. Worth
+remembering for every future SDK call wrapped in error handling.
 
-### Not yet built
+### Decision: apply via `applyDevelopSettings`, not `addDevelopPresetForPlugin`
 
-`developsettings.lua` (blocked on the above), `ColorTransferMain.lua`
-(the actual panel UI — sliders, reference/target pickers, apply button),
-`ColorTransferMenuItem.lua`. None of this can be verified without a real
-Lightroom Classic install — expect iteration rounds once the user tests,
-same pattern as the web export work.
+Original plan was `LrApplication.addDevelopPresetForPlugin` (create a
+hidden plugin preset) + `LrPhoto:applyDevelopPresetFromPlugin` (apply
+it) — note the method name is `applyDevelopPresetFromPlugin`, not the
+plain `applyDevelopPreset` (an early research pass mixed these up; the
+"FromPlugin" variant is the one that pairs with plugin-created hidden
+presets). But researching that pairing surfaced a real, still-open Adobe
+bug report: applying a plugin-created preset this way can reset White
+Balance (Temp/Tint) even when `WhiteBalance` isn't in the settings
+table, specifically on Smart Previews or photos with prior WB edits. A
+commenter's workaround — use `photo:applyDevelopSettings(settings,
+historyName)` directly — sidesteps the whole preset-creation step
+entirely: no hidden preset object, just applies the table straight to
+the photo, still needs the same `catalog:withWriteAccessDo` gate. Went
+with this simpler, bug-avoiding path — `developsettings.lua` needed no
+changes, it already just returns a plain settings table.
+
+### Built: `ColorTransferMain.lua` — the panel UI
+
+Sliders mirroring `index.html`'s `sliderIds` (intensity/warmth/contrast/
+saturation/highlights/shadows/fade/grain, same ranges/defaults),
+`LrDialogs.runOpenPanel` for the reference image, `getTargetPhoto()` +
+`catalog_photo` preview for the target, a name field (defaults to the
+reference filename, becomes the Develop History step name on apply).
+Apply button spawns an `LrTasks.startAsyncTask` (button actions can't
+yield directly) that: reads reference pixels via `imageio`, reads target
+pixels via `photo:requestJpegThumbnail` (adapted from callback to a
+yield-poll loop, the standard SDK pattern) written to a temp file and
+decoded the same way, computes stats, builds curves, and applies via
+`withWriteAccessDo` + `applyDevelopSettings`. Avoided `table.unpack` in
+the view-building code (Lua 5.2+ only; Lightroom's Lua version wasn't
+worth gambling on) in favor of plain `table.insert`.
+
+**Not yet tested against real Lightroom** — this is UI/orchestration
+code with no standalone-verifiable path (unlike `lab.lua`/`imageio.lua`/
+`curvefit.lua`/`developsettings.lua`, all confirmed before this point).
+Known remaining uncertainties, lowest to highest confidence: exact
+`f:catalog_photo{}` parameter names (width/height might differ),
+`LrPathUtils.removeExtension` and `LrTasks.sleep` existing as named.
+Expect at least one more debugging round once the user opens the panel
+in Lightroom — same pattern as every other real-Lightroom-only piece so
+far in this project.

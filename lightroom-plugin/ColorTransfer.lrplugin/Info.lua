@@ -9,6 +9,10 @@ return {
 
   LrExportMenuItems = {
     {
+      title = 'Color Transfer...',
+      file = 'ColorTransferMain.lua',
+    },
+    {
       title = 'Color Transfer: Dump Develop Settings (diagnostic)',
       file = 'DumpDevelopSettings.lua',
     },

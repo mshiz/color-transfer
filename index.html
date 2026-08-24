@@ -10,9 +10,9 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --cream: #181613; --ink: #F2EFE8; --red: #D6503A;
-    --warm-white: #221F1B; --blush: #3A2B27;
-    --ink-60: rgba(242,239,232,0.6); --ink-20: rgba(242,239,232,0.2); --ink-05: rgba(242,239,232,0.05);
+    --cream: #19191A; --ink: #ECECEA; --red: #D6503A;
+    --warm-white: #232325; --blush: #2E2E30;
+    --ink-60: rgba(236,236,234,0.6); --ink-20: rgba(236,236,234,0.2); --ink-05: rgba(236,236,234,0.05);
     --sidebar: 280px;
   }
   html, body {
@@ -72,7 +72,7 @@
     position: absolute; top: 0; left: 0; right: 0; z-index: 4;
     padding: 0.625rem 0.875rem;
     display: flex; justify-content: space-between; align-items: center;
-    background: linear-gradient(to bottom, rgba(34,31,27,0.97) 55%, transparent);
+    background: linear-gradient(to bottom, rgba(35,35,37,0.97) 55%, transparent);
     pointer-events: none;
   }
   .panel-header.hidden { display: none; }
@@ -93,7 +93,7 @@
   .drop-zone.has-image .drop-icon,
   .drop-zone.has-image .drop-text,
   .drop-zone.has-image .drop-sub { display: none; }
-  .drop-zone.has-image.drag-over { background: rgba(58,43,39,0.55); }
+  .drop-zone.has-image.drag-over { background: rgba(46,46,48,0.55); }
   .drop-zone:not(.has-image):hover,
   .drop-zone:not(.has-image).drag-over { background: var(--blush); }
   .drop-icon { width: 24px; height: 24px; opacity: 0.22; }
@@ -109,7 +109,7 @@
   .toggle-wrap {
     position: absolute; bottom: 0.875rem; left: 50%; transform: translateX(-50%);
     z-index: 6; display: none; align-items: center; gap: 0.5rem;
-    background: rgba(34,31,27,0.93); border: 0.5px solid var(--ink-20);
+    background: rgba(35,35,37,0.93); border: 0.5px solid var(--ink-20);
     padding: 0.35rem 0.75rem 0.35rem 0.5rem; white-space: nowrap;
   }
   .toggle-wrap.visible { display: flex; }
@@ -126,7 +126,7 @@
   .remove-btn {
     position: absolute; top: 8px; right: 8px; z-index: 6;
     width: 18px; height: 18px;
-    background: rgba(34,31,27,0.9); border: 0.5px solid var(--ink-20);
+    background: rgba(35,35,37,0.9); border: 0.5px solid var(--ink-20);
     cursor: pointer; font-size: 8px; color: var(--ink-60);
     display: none; align-items: center; justify-content: center; font-family: monospace;
   }
@@ -136,7 +136,7 @@
   /* ── PROCESSING ── */
   .proc-overlay {
     position: absolute; inset: 0;
-    background: rgba(34,31,27,0.82);
+    background: rgba(35,35,37,0.82);
     display: none; align-items: center; justify-content: center;
     flex-direction: column; gap: 0.625rem; z-index: 8;
   }

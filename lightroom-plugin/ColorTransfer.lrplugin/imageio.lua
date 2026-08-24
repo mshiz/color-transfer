@@ -165,13 +165,36 @@ if import ~= nil then
   -- then looped over pixel-by-pixel in pure Lua would be needlessly slow.
   function M.convertToBMP(sourcePath, maxDimension)
     local tmpDir = LrPathUtils.getStandardFilePath("temp")
-    local bmpPath = LrPathUtils.child(tmpDir, LrPathUtils.leafName(sourcePath) .. "-" .. tostring(math.random(1e9)) .. ".bmp")
+    local uid = tostring(math.random(1e9))
+    local bmpPath = LrPathUtils.child(tmpDir, LrPathUtils.leafName(sourcePath) .. "-" .. uid .. ".bmp")
+    local stderrPath = LrPathUtils.child(tmpDir, "colortransfer-stderr-" .. uid .. ".log")
     local resizeArg = maxDimension and (" -Z " .. tostring(math.floor(maxDimension))) or ""
-    local cmd = "sips -s format bmp" .. resizeArg .. " " .. shellQuote(sourcePath) .. " --out " .. shellQuote(bmpPath)
-    local ok, status = LrTasks.execute(cmd)
-    if not ok or not LrFileUtils.exists(bmpPath) then
-      error("sips failed to convert " .. sourcePath .. " to BMP (status: " .. tostring(status) .. ")")
+    -- LrTasks.execute's only return value is the numeric exit status (no
+    -- stdout/stderr capture per the SDK docs) -- redirect stderr to a
+    -- file ourselves so a failure can be diagnosed instead of just
+    -- "it didn't work". Confirmed via research (RESEARCH.md) that a
+    -- previous version of this check (`if not ok`) was dead code: exit
+    -- codes are numbers, and every number is truthy in Lua, so that
+    -- branch could never fire -- fixed to check `exitCode ~= 0`.
+    local cmd = "sips -s format bmp" .. resizeArg .. " " .. shellQuote(sourcePath)
+      .. " --out " .. shellQuote(bmpPath) .. " 2> " .. shellQuote(stderrPath)
+    local exitCode = LrTasks.execute(cmd)
+    local outputExists = LrFileUtils.exists(bmpPath)
+    if exitCode ~= 0 or not outputExists then
+      local stderrText = ""
+      if LrFileUtils.exists(stderrPath) then
+        local ef = io.open(stderrPath, "r")
+        if ef then stderrText = ef:read("*a") or ""; ef:close() end
+      end
+      LrFileUtils.delete(stderrPath)
+      local sourceExists = LrFileUtils.exists(sourcePath)
+      local sizeOk, sourceSize = pcall(function() return LrFileUtils.fileAttributes(sourcePath).fileSize end)
+      if not sizeOk then sourceSize = "?" end
+      error(string.format(
+        "sips failed converting %s to BMP: exitCode=%s outputExists=%s sourceExists=%s sourceSize=%s stderr=%q cmd=%s",
+        sourcePath, tostring(exitCode), tostring(outputExists), tostring(sourceExists), tostring(sourceSize), stderrText, cmd))
     end
+    LrFileUtils.delete(stderrPath)
     return bmpPath
   end
 
@@ -222,6 +245,7 @@ if import ~= nil then
 
     local tmpDir = LrPathUtils.getStandardFilePath("temp")
     local bestBmpPath, bestPixelCount = nil, 0
+    local candidateErrors = {}
 
     for _, offset in ipairs(offsets) do
       -- Slice from this offset to end of file, same as the web app --
@@ -255,11 +279,14 @@ if import ~= nil then
         else
           LrFileUtils.delete(bmpPath)
         end
+      else
+        candidateErrors[#candidateErrors + 1] = "offset " .. offset .. ": " .. tostring(bmpPathOrErr)
       end
     end
 
     if not bestBmpPath then
-      error("No decodable embedded JPEG preview found in " .. rawPath .. " (" .. #offsets .. " candidate offset(s) tried)")
+      error("No decodable embedded JPEG preview found in " .. rawPath .. " (" .. #offsets
+        .. " candidate offset(s) tried). Failures:\n" .. table.concat(candidateErrors, "\n"))
     end
 
     local bf = assert(io.open(bestBmpPath, "rb"))

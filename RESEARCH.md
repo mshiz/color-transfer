@@ -468,4 +468,32 @@ filtered to 1, confirmed as a real 4416×2944 preview) — both
 cross-checked with a standalone Lua test script against the actual
 files, not just unit-tested against synthetic data.
 
-Not yet re-tested end-to-end in real Lightroom after this fix.
+First real-Lightroom retest after this fix threw `No decodable embedded
+JPEG preview found... (1 candidate offset(s) tried)` — the filter
+correctly found the one real candidate (matching the standalone Lua/
+Python verification above), but the actual `sips` conversion failed
+inside the plugin for a slice that **decodes perfectly fine when run
+standalone in Bash** (confirmed by re-running the exact same `sips -s
+format bmp` command directly on the same byte slice — succeeded, exit
+0). So the bug is specifically in how the plugin invokes `sips`, not in
+`sips` or the byte-extraction logic itself.
+
+While investigating, found a real bug: `LrTasks.execute`'s documented
+return value is a single number (the exit status) — confirmed via the
+SDK reference, no separate boolean/status pair. `convertToBMP`'s
+original check was `local ok, status = LrTasks.execute(cmd); if not ok
+...` — since `status` was never actually returned, `ok` held the exit
+code itself, and *every number is truthy in Lua*, so `not ok` could
+never fire regardless of success or failure. That branch was dead code;
+failure detection was silently relying entirely on the output-file
+existence check.
+
+Fixed the check to compare `exitCode ~= 0` properly, and — since
+`LrTasks.execute` has no stdout/stderr capture at all per the docs —
+added stderr redirection to a temp file plus source/output file
+existence and size in the error message, and had `loadPixelsFromRawFile`
+collect and surface each candidate's specific failure reason instead of
+a generic "not decodable" message. Not yet known which of these was the
+actual root cause of the original failure — the next real-Lightroom
+error message should pinpoint it directly instead of requiring more
+guessing.

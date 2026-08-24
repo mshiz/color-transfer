@@ -201,3 +201,86 @@ embedded JPEG rendering much more closely than a generic guess.
 - **In-app note when a RAW is loaded**, e.g. "Preview shown is your
   camera's embedded JPEG — Lightroom's own RAW render will look a bit
   different before edits, see RESEARCH.md" — proposed, not yet added.
+
+## Lightroom Classic plugin (native, no browser)
+
+New effort, separate from the web app: a real Lightroom Classic plugin
+(`lightroom-plugin/ColorTransfer.lrplugin/`) so the tool runs inside
+Lightroom directly — no browser, no manual file import. Full plan at
+the time this was scoped: `/Users/marcioribeiro/.claude/plans/adaptive-tinkering-wigderson.md`.
+macOS only for v1.
+
+**Approach:** rather than porting the exact reverse-engineered LUT/XMP
+format from the web export (fragile, and Lua has no zlib), the plugin
+computes the same Lab color match and creative-slider adjustments, then
+represents them as Lightroom's own documented develop settings — three
+per-channel `ToneCurvePV2012<Red/Green/Blue>` curves (sampled from the
+transform, holding the other two channels at mid-gray) plus native Grain
+settings — applied via `LrApplication.addDevelopPresetForPlugin` +
+`photo:applyDevelopPreset`. No manual import step at all. Trade-off:
+close but not pixel-identical to the web LUT (three independent 1D
+curves can't reproduce cross-channel effects a full 3D LUT can), for
+reliability and zero friction.
+
+### What's built and verified so far
+
+- `lab.lua` — direct port of `rgbToLab`/`labToRgb`/`computeStats` plus
+  the full per-pixel transform (`colorMatchPixel`, `applyCreativeAdjustments`,
+  `transformPixel` = both combined, mirroring `transformPixelForLUT` in
+  `index.html:715-731` exactly, minus grain). **Verified**: every
+  function's output is byte-identical to the real JS implementation,
+  cross-checked via a JavaScriptCore (`osascript -l JavaScript`) run of
+  the actual extracted JS functions against the same test inputs — 10
+  Lab round-trip cases, 25 color-match-only cases, 15 full-transform
+  cases (including fade's clamp edges) all match exactly. Repeatable via
+  `lua verify_lab.lua`.
+- `imageio.lua` — pixel access via shelling out to `sips -s format bmp`
+  (found empirically: `sips` does NOT support PPM despite that being the
+  original plan — checked `sips --formats` directly rather than assuming)
+  and parsing the resulting uncompressed 24bpp BMP in pure Lua. **Verified**:
+  `parseBMP` decoded a real sips-generated BMP correctly — dimensions and
+  corner pixel values cross-checked two ways (manual `xxd` hex decode of
+  the header, and an independent Python/Pillow read of the same file),
+  all three agree exactly. Repeatable via `lua verify_imageio.lua <bmp>`.
+  The Lightroom-dependent half (`convertToBMP`/`loadPixelsFromFile`, using
+  `LrTasks`/`LrPathUtils`) can't be tested outside the plugin runtime.
+- `curvefit.lua` — samples `lab.transformPixel` at 17 points per channel
+  to build the `ToneCurvePV2012` point arrays. No JS equivalent exists to
+  cross-check against (new logic, not a port) — verified structurally
+  instead: correct point count, strictly increasing input values, output
+  clamped to [0,255], and confirmed intensity=0 + no creative adjustment
+  produces the exact identity curve. Repeatable via `lua verify_curvefit.lua`.
+
+### Open risk: develop-settings table field names (blocking `developsettings.lua`)
+
+The Lua table shape `addDevelopPresetForPlugin`/`getDevelopSettings` use
+is only partially confirmed. `Contrast2012`, `Highlights2012`,
+`Shadows2012`, `Whites2012`, `Blacks2012`, `Vibrance`, `Saturation`,
+`GrainAmount`, `GrainSize`, `GrainFrequency` look solid — they match the
+already-proven XMP attribute names. The tone-curve fields are genuinely
+uncertain: some sources mention a newer `ExtendedToneCurvePV2012<Channel>`
+alongside/replacing `ToneCurvePV2012<Channel>`, possibly needing a
+companion `EnableToneCurve` flag — and Adobe's own community threads
+describe this area as *"documentation is incomplete... refer to
+community resources or reverse-engineering."* Same category of risk that
+broke the profile import twice on the web export side (`crs:CameraProfile`
+regression, silent grain no-op) — not guessing again without a
+ground-truth check first (user's explicit call).
+
+**Diagnostic built to resolve this** (`DumpDevelopSettings.lua`, wired
+into `Info.lua` as a Plug-in Extras menu item): dumps
+`photo:getDevelopSettings()` for the current photo to
+`~/Desktop/color-transfer-develop-settings-dump.lua` via the `serialize.lua`
+helper (verified standalone against a synthetic nested table — correct
+nesting, array-compaction, string quoting). Next step: install the
+plugin skeleton in Lightroom, manually apply a custom RGB tone curve to
+a test photo, run the diagnostic, and read back the real field names
+before writing `developsettings.lua` against them.
+
+### Not yet built
+
+`developsettings.lua` (blocked on the above), `ColorTransferMain.lua`
+(the actual panel UI — sliders, reference/target pickers, apply button),
+`ColorTransferMenuItem.lua`. None of this can be verified without a real
+Lightroom Classic install — expect iteration rounds once the user tests,
+same pattern as the web export work.

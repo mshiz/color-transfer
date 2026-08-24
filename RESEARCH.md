@@ -507,3 +507,156 @@ potentially yielding). Grepped the whole plugin afterward to confirm no
 other plain `pcall` remains anywhere near an SDK call — this lesson
 needs to be a standing rule for every new SDK call going forward, not
 just a one-off fix each time it's hit.
+
+## Curve-fit accuracy ceiling confirmed for real, in practice (2026-08-24)
+
+With the RAW-decode and yield bugs fixed, the pipeline finally ran clean
+end to end — but the result was clearly weaker/different from the web
+app's, even with a proper (non-screenshot) reference and default
+intensity. User's own read: "looks like intensity ~25% instead of 80%,"
+and still not similar to the web app even mentally correcting for that.
+
+Diagnosis: the curves are built by sweeping one channel while holding
+the other two at neutral gray (128/255). Real photo pixels are rarely
+neutral — a warm-toned photo's "typical" pixel might be R=180 G=140
+B=100, nowhere near gray. A curve fit around a gray assumption
+systematically undershoots the true transform for any pixel whose other
+channels are far from gray, which is most pixels in a real photo. This
+is the documented "can't reproduce cross-channel effects" trade-off from
+the original plan, turning out to be more severe in practice than
+expected, not a new bug.
+
+**Proposed but not implemented**: anchor each channel's curve sample to
+the photo's own actual average color for the other two channels
+(computed from real pixel stats) instead of a hardcoded 128 gray. Would
+help meaningfully but can't fully close the gap — 3 independent 1D
+curves are still not a joint 3D transform, no amount of smarter anchoring
+changes that mathematically.
+
+## Investigated going back to the exact-LUT approach — blocked, reverted
+
+User asked directly: what actually gets us closest to the web app's
+colors? Honest answer: only the exact-LUT (profile) approach, since it's
+the *same* math as the web app, not an approximation. Revisited it with
+what we'd since learned (the `CameraProfile` field exists in the real
+develop-settings dump, suggesting a profile could be selected by name
+without a manual Import Profiles click) and started validating before
+committing to the large Lua port (zlib/base85/MD5 encoding).
+
+**Correct profile folder found by checking where already-imported
+profiles actually live** (not by trusting the first web search result,
+which was wrong): `~/Library/Application Support/Adobe/CameraRaw/CameraProfiles/`
+is for traditional `.dcp` camera calibration profiles. The `Look`-type
+Enhanced Profiles this project uses (the ones "Import Profiles" in the
+web app's workflow produces) land in
+**`~/Library/Application Support/Adobe/CameraRaw/ImportedSettings/`**
+instead — confirmed by locating the actual files behind several
+already-imported test profiles (`test-name.xmp`, `another-image.xmp`,
+etc.) rather than assuming.
+
+**Restart-dependency test (the critical question) — result: negative.**
+Generated two dramatically different test profiles with the existing,
+already-verified web app (solid red reference vs. solid blue reference,
+100% intensity, via Playwright automation — no new code needed for this
+test) under the same fixed filename, to check whether Lightroom re-reads
+a profile's *content* live once it's already registered, or needs a
+restart for every content change too:
+1. Placed the red version, restarted Lightroom once (first-time
+   registration) → appeared in Profile Browser, applied correctly (red).
+2. Overwrote the same file with the blue version, did **not** restart,
+   reselected the profile → **still showed red.** Confirmed: even
+   content changes to an already-known profile need a restart, not just
+   brand-new profiles.
+
+This kills the "one-time setup restart, then reuse forever" plan. Since
+every real use of the plugin needs fresh profile content (different
+photo, different reference, different sliders each time), and each
+fresh version needs its own restart, the exact-LUT-via-profile-file
+approach is **not viable for an interactive/iterative plugin workflow**
+— a full Lightroom restart before every single use is worse than the
+web app, not better. (Test artifact `Color Transfer Live.xmp` removed
+from the `ImportedSettings` folder after this was confirmed — it was
+diagnostic-only, not something to leave behind.)
+
+**Note for later, if this ever gets revisited:** manually importing a
+profile via the Profile Browser's own "Import Profiles" UI action *does*
+work live, no restart — that's how the pre-existing 8 test profiles got
+there. The restart requirement is specific to Lightroom discovering
+files dropped into the folder directly, not to the profile mechanism as
+a whole. A design that generates the file and asks for one manual
+Import-Profiles click (instead of trying to auto-register it) would
+still work without a restart — see the UX discussion below for why that
+wasn't pursued either.
+
+## Investigated Color Grading as an alternative to tone curves — not documented enough to pursue
+
+Reasoning: the app's actual transform is a per-channel *affine* shift in
+Lab space (mean/std matching reduces algebraically to `output = gain*x +
+offset` per L/A/B channel — a pure linear function, not really a
+per-RGB-channel nonlinear curve at all). Lightroom's Color Grading
+**Global wheel** (`ColorGradeGlobalHue/Sat/Lum`, confirmed present in
+the real develop-settings dump) does a uniform global hue/sat/luminance
+shift, which is conceptually a much more natural fit for an affine
+Lab-space shift than forcing it through 3 independent RGB tone curves —
+and critically, it's a plain develop-settings field, no profile/restart
+problem at all.
+
+**Blocked on**: no public documentation exists for how
+`ColorGradeGlobalHue/Sat/Lum` actually maps to RGB/Lab pixel values
+internally — confirmed via search, nothing found beyond user-facing
+"hue wheel, drag for saturation" descriptions. Using it would require
+empirical calibration (apply known values in real Lightroom, inspect
+actual resulting pixels, reverse-engineer a model) — a much larger,
+less certain undertaking than anything done so far, with no guarantee
+the relationship is even simple/linear enough to fit. Not pursued
+further given the effort/uncertainty ratio, but left here as a
+potentially-revisitable idea if someone finds documentation or is
+willing to do the calibration work.
+
+## UX reset: recreating the web app's dialog inside Lightroom is the wrong shape
+
+Working assumption up to this point was "build a plugin dialog with
+sliders + a rendered preview, mirroring the web app's before/after."
+User pushback, and it's correct: a modal dialog trying to show both
+target and reference images side by side, with our own custom-rendered
+preview, is just a worse browser embedded in Lightroom — recreating the
+web app's whole UI instead of using Lightroom's actual strengths (its
+own excellent image viewer, zoom, before/after "\", histogram). If the
+plugin is going to justify existing over just using the web app, it
+needs to feel integrated, not like a container replicating a browser.
+
+**New direction (not yet built), based on further research:**
+- `LrDialogs.presentFloatingDialog` — a genuine **non-modal** floating
+  palette window (unlike `presentModalDialog`, which blocks interaction
+  with the rest of Lightroom). Confirmed to exist via Adobe community
+  sources, but it's explicitly **undocumented** and one report flags
+  possible Mac-specific issues — needs a smoke test before building on
+  it.
+- Design: a small floating panel (reference picker + sliders only — no
+  attempt to show images ourselves) sits alongside Lightroom's own
+  Develop module. The user has the actual photo open in Lightroom's real
+  Develop view (native zoom/before-after/histogram). As sliders in our
+  panel move, push updates to the real photo via the same debounced
+  `applyDevelopSettings` call already working reliably (curve-fit
+  approach — the exact-LUT/profile path is ruled out for this
+  interactive use case per above), so the user watches the actual photo
+  update live in Lightroom's own view, not a custom-built preview widget.
+  Roughly the same responsiveness as the web app's own 300ms debounce.
+- This locks in curve-fit (not exact-LUT) as the underlying mechanism,
+  since it's the only one that's restart-free and fast enough for live,
+  iterative use. The unimplemented gray→photo-average-anchor accuracy
+  improvement (above) is still worth doing on top of this.
+
+## Status: paused here (2026-08-24)
+
+Nothing further implemented past the last commit (`7cf4351`, the
+LrTasks.pcall fix for RAW extraction). `developsettings.lua`,
+`curvefit.lua`, `lab.lua`, `imageio.lua` are all still valid and reusable
+regardless of which UI direction is picked — none of this investigation
+required changing the underlying math or pixel-access code, only the
+"how does the user interact with it and how does the result get applied"
+layer. Next steps when this resumes: smoke-test `presentFloatingDialog`
+on Mac first (the one unverified building block the new direction
+depends on), then build the floating-panel + live-`applyDevelopSettings`
+architecture, then implement the gray→photo-average curve anchoring
+improvement.

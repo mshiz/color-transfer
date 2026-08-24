@@ -201,6 +201,15 @@
   .btn-red:hover { background: var(--red); color: var(--warm-white); }
   .btn-red:disabled:hover { background: transparent; color: var(--red); }
 
+  .name-input {
+    font-family: 'Poppins', sans-serif; font-weight: 300;
+    font-size: 0.6rem; letter-spacing: 0.02em;
+    padding: 0.5rem 0.6rem; width: 100%;
+    border: 0.5px solid var(--ink-20); background: var(--warm-white); color: var(--ink);
+  }
+  .name-input:focus { outline: none; border-color: var(--ink); }
+  .name-input::placeholder { color: var(--ink-60); }
+
   .status-bar {
     margin-top: 0.75rem; padding: 0.5rem 0.75rem;
     background: var(--ink-05); border-left: 1.5px solid var(--red); display: none;
@@ -289,6 +298,7 @@
 
       <div class="sidebar-spacer"></div>
       <div class="sidebar-actions">
+        <input type="text" class="name-input" id="profile-name-input" placeholder="Profile name (shown in Lightroom)">
         <button class="btn" onclick="resetSliders()">Reset</button>
         <button class="btn btn-red" id="sb-export" onclick="exportImage()" disabled>Export Image</button>
         <button class="btn" id="sb-xmp" onclick="exportXMP()" disabled>Export Lightroom Profile</button>
@@ -489,6 +499,7 @@ async function loadImage(file, type) {
       document.getElementById('dz-target').classList.add('has-image')
       document.getElementById('header-target').classList.add('hidden')
       document.getElementById('proc-target').classList.remove('visible')
+      document.getElementById('profile-name-input').value = file.name.replace(/\.[^.]+$/, '')
     }
 
     document.getElementById('file-' + type).value = ''
@@ -517,6 +528,7 @@ function removeImage(type) {
     document.getElementById('toggle-wrap').classList.remove('visible')
     document.getElementById('sb-export').disabled = true
     document.getElementById('sb-xmp').disabled = true
+    document.getElementById('profile-name-input').value = ''
     state.hasResult = false
   }
 }
@@ -864,6 +876,12 @@ async function exportXMP() {
 
   setStatus('Building Lightroom profile…')
 
+  const rawName = document.getElementById('profile-name-input').value.trim()
+  const profileName = rawName || ('Color Transfer ' + new Date().toISOString().slice(0, 16).replace('T', ' '))
+  const escapeXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const xmlName = escapeXml(profileName)
+  const fileSlug = profileName.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '-') || 'color-transfer'
+
   const get = id => parseInt(document.getElementById('sl-' + id).value)
   const intensity  = get('intensity') / 100
   const adj = { warmth: get('warmth'), contrast: get('contrast'), saturation: get('sat'), highlights: get('highlights'), shadows: get('shadows'), fade: get('fade') }
@@ -915,17 +933,17 @@ async function exportXMP() {
    crs:HasSettings="True">
    <crs:Name>
     <rdf:Alt>
-     <rdf:li xml:lang="x-default">Color Transfer — Bruna Lacerda</rdf:li>
+     <rdf:li xml:lang="x-default">${xmlName}</rdf:li>
     </rdf:Alt>
    </crs:Name>
    <crs:ShortName>
     <rdf:Alt>
-     <rdf:li xml:lang="x-default">Color Transfer</rdf:li>
+     <rdf:li xml:lang="x-default">${xmlName}</rdf:li>
     </rdf:Alt>
    </crs:ShortName>
    <crs:SortName>
     <rdf:Alt>
-     <rdf:li xml:lang="x-default">Color Transfer</rdf:li>
+     <rdf:li xml:lang="x-default">${xmlName}</rdf:li>
     </rdf:Alt>
    </crs:SortName>
    <crs:Group>
@@ -946,7 +964,7 @@ async function exportXMP() {
   const blob = new Blob([xmp], { type: 'application/octet-stream' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = 'bruna-color-transfer.xmp'
+  a.download = fileSlug + '.xmp'
   a.click()
   URL.revokeObjectURL(a.href)
   setStatus('Lightroom profile exported — import via Develop → Profile Browser → + → Import Profiles.')

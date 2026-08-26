@@ -6,9 +6,11 @@
 <title>Color Transfer</title>
 <script>
   // Runs before CSS/paint so there's no flash of the wrong theme.
+  // No saved value (or 'auto') means "follow the OS" — handled purely by
+  // the prefers-color-scheme media query in CSS, no attribute needed here.
   try {
     const saved = localStorage.getItem('colorTransferTheme')
-    if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light')
+    if (saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved)
   } catch (e) {}
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -29,6 +31,15 @@
     --warm-white: #FAFAFA; --warm-white-rgb: 250,250,250;
     --blush: #E2E2E1; --blush-rgb: 226,226,225;
     --ink-rgb: 24,24,26;
+  }
+  /* "auto" mode: no data-theme attribute set, so follow the OS setting. */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      --cream: #F0F0F0; --ink: #18181A; --red: #C03928;
+      --warm-white: #FAFAFA; --warm-white-rgb: 250,250,250;
+      --blush: #E2E2E1; --blush-rgb: 226,226,225;
+      --ink-rgb: 24,24,26;
+    }
   }
   html, body {
     background: var(--cream); color: var(--ink);
@@ -65,14 +76,18 @@
     font-family: 'Lora', serif; font-weight: 300;
     font-size: 1.15rem; letter-spacing: -0.01em; line-height: 1;
   }
-  .theme-toggle {
+  .theme-switch {
+    display: flex; gap: 0.35rem;
+  }
+  .theme-btn {
     width: 1.6rem; height: 1.6rem;
     border: 0.5px solid var(--ink-20); background: transparent; color: var(--ink-60);
     font-size: 0.75rem; line-height: 1; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: all 0.2s;
   }
-  .theme-toggle:hover { border-color: var(--ink); color: var(--ink); }
+  .theme-btn:hover { border-color: var(--ink); color: var(--ink); }
+  .theme-btn.active { border-color: var(--ink); color: var(--ink); background: var(--blush); }
 
   /* ── PANELS ── */
   .panels {
@@ -251,7 +266,11 @@
 
       <div class="topbar">
         <h1 class="page-title">Color Transfer</h1>
-        <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark" aria-label="Toggle light/dark theme">☀</button>
+        <div class="theme-switch" role="group" aria-label="Theme">
+          <button class="theme-btn" data-mode="light" onclick="setTheme('light')" title="Light mode" aria-label="Light mode">☀</button>
+          <button class="theme-btn" data-mode="dark" onclick="setTheme('dark')" title="Dark mode" aria-label="Dark mode">☾</button>
+          <button class="theme-btn" data-mode="auto" onclick="setTheme('auto')" title="Match system" aria-label="Match system">◐</button>
+        </div>
       </div>
 
       <div class="panels">
@@ -338,21 +357,20 @@
 <canvas id="target-canvas" style="display:none"></canvas>
 
 <script>
-function syncThemeToggleIcon() {
-  const isLight = document.documentElement.getAttribute('data-theme') === 'light'
-  document.getElementById('theme-toggle').textContent = isLight ? '☾' : '☀'
+function syncThemeButtons(mode) {
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode)
+  })
 }
-function toggleTheme() {
-  const isLight = document.documentElement.getAttribute('data-theme') === 'light'
-  if (isLight) {
-    document.documentElement.removeAttribute('data-theme')
-  } else {
-    document.documentElement.setAttribute('data-theme', 'light')
-  }
-  try { localStorage.setItem('colorTransferTheme', isLight ? 'dark' : 'light') } catch (e) {}
-  syncThemeToggleIcon()
+function setTheme(mode) {
+  if (mode === 'auto') document.documentElement.removeAttribute('data-theme')
+  else document.documentElement.setAttribute('data-theme', mode)
+  try { localStorage.setItem('colorTransferTheme', mode) } catch (e) {}
+  syncThemeButtons(mode)
 }
-syncThemeToggleIcon()
+let savedThemeMode = 'auto'
+try { savedThemeMode = localStorage.getItem('colorTransferTheme') || 'auto' } catch (e) {}
+syncThemeButtons(savedThemeMode)
 
 const state = { refImg: null, targetImg: null, hasResult: false, debounceTimer: null }
 
